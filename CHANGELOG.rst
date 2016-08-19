@@ -3,7 +3,20 @@ Changelog
 
 This document describes changes between each past release.
 
-3.4.0 (unreleased)
+4.1.0 (unreleased)
+------------------
+
+**Internal changes**
+
+- Fix documentation of errors codes (fixes #766)
+- A lot of tests clean-up. The ``tests`` are now outside the ``kinto`` package
+  folder and a ``kinto.core.testing`` module was introduced for tests helpers
+  (fixes #605)
+- In documentation, link the notion of principals to the permissions page instead
+  of glossary
+
+
+4.0.0 (2016-08-17)
 ------------------
 
 **Breaking changes**
@@ -11,10 +24,22 @@ This document describes changes between each past release.
 - ``kinto --version`` was renamed ``kinto version``
 - ``ResourceChanged`` and ``AfterResourceChanged`` events now return
   ``old`` and ``new`` records for the ``delete`` action. (#751)
+- Redis backends are not part of the core anymore. (#712).
+  Use ``kinto_redis.cache`` instead of ``kinto.core.cache.redis``
+  Use ``kinto_redis.storage`` instead of ``kinto.core.storage.redis``
+  Use ``kinto_redis.permission`` instead of ``kinto.core.permission.redis``
+- Redis listener is not part of the core anymore. (#712)
+  Use ``kinto.event_listeners.redis.use = kinto_redis.listeners`` instead of
+  ``kinto.event_listeners.redis.use = kinto.core.listeners.redis``
+- Notion of unique fields was dropped from ``kinto.core`` resources.
 
 **Protocol**
 
 - Added a ``/__version__`` endpoint with the version that has been deployed. (#747)
+- Allow sub-object filtering on plural endpoints (e.g ``?person.name=Eliot``) (#345)
+- Allow sub-object sorting on plural endpoints (e.g ``?_sort=person.name``) (#345)
+
+Protocol is now at version **1.9**. See `API changelog`_.
 
 **New features**
 
@@ -26,14 +51,15 @@ This document describes changes between each past release.
 - Added ability to plug custom StatsD backend implementations via a new ``kinto.statsd_backend``
   setting. Useful for Datadog™ integration for example (fixes #626).
 - Added a ``delete-collection`` action to the ``kinto`` command. (#727)
-- Added verbosity options to the ``kinto`` command (#745)
+- Added verbosity options to the ``kinto`` command. (#745)
+- Added a built-in plugin that allows to define quotas per bucket or collection. (#752)
 
 **Bug fixes**
 
-- Fix Redis get_accessible_object implementation (#725)
 - Fix bug where the resource events of a request targetting two groups/collection
   from different buckets would be grouped together.
 - Fix crash when an invalid UTF-8 character is provided in URL
+- Fix crash when provided ``last_modified`` field is not divisible (e.g. string)
 
 **Internal changes**
 
@@ -52,6 +78,7 @@ This document describes changes between each past release.
   parameter anymore
 - Improved parts of the FAQ (#744)
 - Improve 404 and 403 error handling to make them customizable. (#748)
+- ``kinto.core`` resources are now schemaless by default (fixes #719)
 
 
 3.3.1 (2016-07-19)
