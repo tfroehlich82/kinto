@@ -10,10 +10,23 @@ changed meanwhile, a |status-412| error is returned.
     ``last_modified`` is updated to the current server timestamp, only if a
     field value was changed.
 
+
+Attributes merge
+----------------
+
+The provided values are merged with the existing object. For example:
+
+* ``{"a":"b"}`` + ``{"a":"c"}`` → ``{"a":"c"}``
+* ``{"a":"b"}`` + ``{"b":"c"}`` → ``{"a":"b", "b":"c"}``
+* ``{"a":"b"}`` + ``{"a":null}`` → ``{"a":null}`` : *attributes can't be removed with patch*
+* ``{"a": {"b":"c"}}`` + ``{"a":{"d":"e"}}`` → ``{"a":{"d":"e"}}`` : *sub-objects are replaced, not merged*
+
 .. note::
 
-    `JSON-Patch <http://jsonpatch.com>`_ is currently not
-    supported. Any help is welcomed though!
+    `JSON-Patch <http://jsonpatch.com>`_ or `JSON merge <https://tools.ietf.org/html/rfc7396>`_
+    are currently not supported. Any help is welcomed though!
+    See https://github.com/Kinto/kinto/issues/623
+
 
 Light response body
 -------------------
@@ -39,10 +52,3 @@ See :ref:`api-permissions-payload`.
 .. ----------------
 
 .. If a read-only field is modified, a |status-400| error is returned.
-
-
-.. Conflicts
-.. ---------
-
-.. If changing a object field violates a field unicity constraint, a |status-409|
-.. error response is returned (see :ref:`error channel <error-responses>`).

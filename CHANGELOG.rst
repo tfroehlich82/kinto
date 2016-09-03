@@ -3,7 +3,61 @@ Changelog
 
 This document describes changes between each past release.
 
-3.4.0 (unreleased)
+4.2.0 (unreleased)
+------------------
+
+**New features**
+
+- Support for filtering records based on a text search (#791)
+
+4.1.1 (2016-08-29)
+------------------
+
+**Bug fixes**
+
+- Fix kinto init input function (#796)
+
+
+4.1.0 (2016-08-22)
+------------------
+
+**New features**
+
+- Show warning when ``http_scheme`` is not set to ``https`` (#706, thanks @Prashant-Surya)
+
+**Bug fixes**
+
+- Fix sorting/filtering history entries by ``date`` field
+- On subobject filtering, return a 400 error response only if first level field
+  is unknown (on resources with strict schema)
+
+
+4.0.1 (2016-08-22)
+------------------
+
+**New features**
+
+- Permissions endpoint (``GET /permissions``) can now be filtered, sorted and paginated.
+
+**Bug fixes**
+
+- Return 400 error response when history is filtered with unknown field
+- Fix crash on permissions endpoint when history is enabled (#774)
+- Fix crash on history when interacting via the bucket plural endpoint (``/buckets``) (fixes #773)
+
+**Internal changes**
+
+- Fix documentation of errors codes (fixes #766)
+- ``kinto.id_generator`` was removed from documentation since it does not
+  behave as expected (fixes #757, thanks @doplumi)
+  folder and a ``kinto.core.testing`` module was introduced for tests helpers
+  (fixes #605)
+- In documentation, link the notion of principals to the permissions page instead
+  of glossary
+- Add details about ``PATCH`` behaviour (fixes #566)
+
+
+4.0.0 (2016-08-17)
 ------------------
 
 **Breaking changes**
@@ -11,10 +65,22 @@ This document describes changes between each past release.
 - ``kinto --version`` was renamed ``kinto version``
 - ``ResourceChanged`` and ``AfterResourceChanged`` events now return
   ``old`` and ``new`` records for the ``delete`` action. (#751)
+- Redis backends are not part of the core anymore. (#712).
+  Use ``kinto_redis.cache`` instead of ``kinto.core.cache.redis``
+  Use ``kinto_redis.storage`` instead of ``kinto.core.storage.redis``
+  Use ``kinto_redis.permission`` instead of ``kinto.core.permission.redis``
+- Redis listener is not part of the core anymore. (#712)
+  Use ``kinto.event_listeners.redis.use = kinto_redis.listeners`` instead of
+  ``kinto.event_listeners.redis.use = kinto.core.listeners.redis``
+- Notion of unique fields was dropped from ``kinto.core`` resources.
 
 **Protocol**
 
 - Added a ``/__version__`` endpoint with the version that has been deployed. (#747)
+- Allow sub-object filtering on plural endpoints (e.g ``?person.name=Eliot``) (#345)
+- Allow sub-object sorting on plural endpoints (e.g ``?_sort=person.name``) (#345)
+
+Protocol is now at version **1.9**. See `API changelog`_.
 
 **New features**
 
@@ -24,16 +90,17 @@ This document describes changes between each past release.
 - Added a new ``--dry-run`` option to command-line script ``migrate`` that will simulate
   migration operation without executing on the backend (thanks @lavish205! #685)
 - Added ability to plug custom StatsD backend implementations via a new ``kinto.statsd_backend``
-  setting. Useful for Datadog™ integration for example (fixes #626).
+  setting. Useful for Datadogâ˘ integration for example (fixes #626).
 - Added a ``delete-collection`` action to the ``kinto`` command. (#727)
-- Added verbosity options to the ``kinto`` command (#745)
+- Added verbosity options to the ``kinto`` command. (#745)
+- Added a built-in plugin that allows to define quotas per bucket or collection. (#752)
 
 **Bug fixes**
 
-- Fix Redis get_accessible_object implementation (#725)
 - Fix bug where the resource events of a request targetting two groups/collection
   from different buckets would be grouped together.
 - Fix crash when an invalid UTF-8 character is provided in URL
+- Fix crash when provided ``last_modified`` field is not divisible (e.g. string)
 
 **Internal changes**
 
@@ -52,6 +119,7 @@ This document describes changes between each past release.
   parameter anymore
 - Improved parts of the FAQ (#744)
 - Improve 404 and 403 error handling to make them customizable. (#748)
+- ``kinto.core`` resources are now schemaless by default (fixes #719)
 
 
 3.3.1 (2016-07-19)

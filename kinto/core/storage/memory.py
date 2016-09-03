@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from kinto.core import utils
 from kinto.core.storage import (
-    StorageBase, exceptions, Filter,
+    StorageBase, exceptions,
     DEFAULT_ID_FIELD, DEFAULT_MODIFIED_FIELD, DEFAULT_DELETED_FIELD)
 from kinto.core.utils import COMPARISON
 
@@ -46,68 +46,6 @@ class MemoryBasedStorage(StorageBase):
         record[modified_field] = timestamp
         return record
 
-    def check_unicity(self, collection_id, parent_id, record,
-                      unique_fields, id_field, for_creation=False):
-        """Check that the specified record does not violates unicity
-        constraints defined in the resource's mapping options.
-        """
-        if for_creation and id_field in record:
-            # If id is provided by client, check that no record conflicts.
-            unique_fields = (unique_fields or tuple()) + (id_field,)
-
-        if not unique_fields:
-            return
-
-        unicity_rules = get_unicity_rules(collection_id, parent_id, record,
-                                          unique_fields=unique_fields,
-                                          id_field=id_field,
-                                          for_creation=for_creation)
-        for filters in unicity_rules:
-            existing, count = self.get_all(collection_id, parent_id,
-                                           filters=filters,
-                                           id_field=id_field)
-            if count > 0:
-                field = filters[0].field
-                raise exceptions.UnicityError(field, existing[0])
-
-    def apply_filters(self, records, filters):
-        """Filter the specified records, using basic iteration.
-        """
-        operators = {
-            COMPARISON.LT: operator.lt,
-            COMPARISON.MAX: operator.le,
-            COMPARISON.EQ: operator.eq,
-            COMPARISON.NOT: operator.ne,
-            COMPARISON.MIN: operator.ge,
-            COMPARISON.GT: operator.gt,
-            COMPARISON.IN: operator.contains,
-            COMPARISON.EXCLUDE: lambda x, y: not operator.contains(x, y),
-        }
-        for record in records:
-            matches = True
-            for f in filters:
-                left = record.get(f.field)
-                right = f.value
-                if f.operator in (COMPARISON.IN, COMPARISON.EXCLUDE):
-                    right = left
-                    left = f.value
-                else:
-                    # Python3 cannot compare None to other value.
-                    if left is None:
-                        if f.operator in (COMPARISON.GT, COMPARISON.MIN):
-                            matches = False
-                            continue
-                        elif f.operator in (COMPARISON.LT, COMPARISON.MAX):
-                            continue  # matches = matches and True
-                matches = matches and operators[f.operator](left, right)
-            if matches:
-                yield record
-
-    def apply_sorting(self, records, sorting):
-        """Sort the specified records, using cumulative python sorting.
-        """
-        return apply_sorting(records, sorting)
-
     def extract_record_set(self, records,
                            filters, sorting, id_field, deleted_field,
                            pagination_rules=None, limit=None):
@@ -115,28 +53,13 @@ class MemoryBasedStorage(StorageBase):
         pagination.
 
         """
-        filtered = list(self.apply_filters(records, filters or []))
-        total_records = len(filtered)
-
-        paginated = {}
-        for rule in pagination_rules or []:
-            values = list(self.apply_filters(filtered, rule))
-            paginated.update(dict(((x[id_field], x) for x in values)))
-
-        if paginated:
-            paginated = paginated.values()
-        else:
-            paginated = filtered
-
-        sorted_ = self.apply_sorting(paginated, sorting or [])
-
-        filtered_deleted = len([r for r in sorted_
-                                if r.get(deleted_field) is True])
-
-        if limit:
-            sorted_ = list(sorted_)[:limit]
-
-        return sorted_, total_records - filtered_deleted
+        return extract_record_set(records,
+                                  filters=filters,
+                                  sorting=sorting,
+                                  id_field=id_field,
+                                  deleted_field=deleted_field,
+                                  pagination_rules=pagination_rules,
+                                  limit=limit)
 
 
 class Storage(MemoryBasedStorage):
@@ -205,18 +128,23 @@ class Storage(MemoryBasedStorage):
         return current
 
     def create(self, collection_id, parent_id, record, id_generator=None,
-               unique_fields=None, id_field=DEFAULT_ID_FIELD,
+               id_field=DEFAULT_ID_FIELD,
                modified_field=DEFAULT_MODIFIED_FIELD, auth=None):
-        self.check_unicity(collection_id, parent_id, record,
-                           unique_fields=unique_fields,
-                           id_field=id_field,
-                           for_creation=True)
-
         id_generator = id_generator or self.id_generator
         record = record.copy()
-        _id = record.setdefault(id_field, id_generator())
+        if id_field in record:
+            # Raise unicity error if record with same id already exists.
+            try:
+                existing = self.get(collection_id, parent_id, record[id_field])
+                raise exceptions.UnicityError(id_field, existing)
+            except exceptions.RecordNotFoundError:
+                pass
+        else:
+            record[id_field] = id_generator()
+
         self.set_record_timestamp(collection_id, parent_id, record,
                                   modified_field=modified_field)
+        _id = record[id_field]
         self._store[parent_id][collection_id][_id] = record
         self._cemetery[parent_id][collection_id].pop(_id, None)
         return record
@@ -228,18 +156,14 @@ class Storage(MemoryBasedStorage):
         collection = self._store[parent_id][collection_id]
         if object_id not in collection:
             raise exceptions.RecordNotFoundError(object_id)
-        return collection[object_id]
+        return collection[object_id].copy()
 
     def update(self, collection_id, parent_id, object_id, record,
-               unique_fields=None, id_field=DEFAULT_ID_FIELD,
+               id_field=DEFAULT_ID_FIELD,
                modified_field=DEFAULT_MODIFIED_FIELD,
                auth=None):
         record = record.copy()
         record[id_field] = object_id
-
-        self.check_unicity(collection_id, parent_id, record,
-                           unique_fields=unique_fields,
-                           id_field=id_field)
 
         self.set_record_timestamp(collection_id, parent_id, record,
                                   modified_field=modified_field)
@@ -345,31 +269,76 @@ class Storage(MemoryBasedStorage):
         return deleted
 
 
-def get_unicity_rules(collection_id, parent_id, record, unique_fields,
-                      id_field, for_creation):
-    """Build filter to target existing records that violate the resource
-    unicity rules on fields.
+def extract_record_set(records, filters, sorting,
+                       pagination_rules=None, limit=None,
+                       id_field=DEFAULT_ID_FIELD,
+                       deleted_field=DEFAULT_DELETED_FIELD):
+    """Apply filters, sorting, limit, and pagination rules to the list of
+    `records`.
 
-    :returns: a list of list of filters
     """
-    rules = []
-    for field in set(unique_fields):
-        value = record.get(field)
+    filtered = list(apply_filters(records, filters or []))
+    total_records = len(filtered)
 
-        # None values cannot be considered unique.
-        if value is None:
-            continue
+    paginated = {}
+    for rule in pagination_rules or []:
+        values = list(apply_filters(filtered, rule))
+        paginated.update(dict(((x[id_field], x) for x in values)))
 
-        filters = [Filter(field, value, COMPARISON.EQ)]
+    if paginated:
+        paginated = paginated.values()
+    else:
+        paginated = filtered
 
-        if not for_creation:
-            object_id = record[id_field]
-            exclude = Filter(id_field, object_id, COMPARISON.NOT)
-            filters.append(exclude)
+    sorted_ = apply_sorting(paginated, sorting or [])
 
-        rules.append(filters)
+    filtered_deleted = len([r for r in sorted_
+                            if r.get(deleted_field) is True])
 
-    return rules
+    if limit:
+        sorted_ = list(sorted_)[:limit]
+
+    return sorted_, total_records - filtered_deleted
+
+
+def apply_filters(records, filters):
+    """Filter the specified records, using basic iteration.
+    """
+    operators = {
+        COMPARISON.LT: operator.lt,
+        COMPARISON.MAX: operator.le,
+        COMPARISON.EQ: operator.eq,
+        COMPARISON.NOT: operator.ne,
+        COMPARISON.MIN: operator.ge,
+        COMPARISON.GT: operator.gt,
+        COMPARISON.IN: operator.contains,
+        COMPARISON.EXCLUDE: lambda x, y: not operator.contains(x, y),
+        COMPARISON.LIKE: lambda x, y: re.search(y, x, re.IGNORECASE),
+    }
+    for record in records:
+        matches = True
+        for f in filters:
+            right = f.value
+            left = record
+            subfields = f.field.split('.')
+            for subfield in subfields:
+                if not isinstance(left, dict):
+                    break
+                left = left.get(subfield)
+
+            if f.operator in (COMPARISON.IN, COMPARISON.EXCLUDE):
+                right, left = left, right
+            else:
+                # Python3 cannot compare None to other value.
+                if left is None:
+                    if f.operator in (COMPARISON.GT, COMPARISON.MIN):
+                        matches = False
+                        continue
+                    elif f.operator in (COMPARISON.LT, COMPARISON.MAX):
+                        continue  # matches = matches and True
+            matches = matches and operators[f.operator](left, right)
+        if matches:
+            yield record
 
 
 def apply_sorting(records, sorting):
@@ -384,7 +353,13 @@ def apply_sorting(records, sorting):
 
     def column(first, record, name):
         empty = first.get(name, float('inf'))
-        return record.get(name, empty)
+        subfields = name.split('.')
+        value = record
+        for subfield in subfields:
+            value = value.get(subfield, empty)
+            if not isinstance(value, dict):
+                break
+        return value
 
     for sort in reversed(sorting):
         result = sorted(result,

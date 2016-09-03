@@ -16,6 +16,7 @@ Contributors
 * David Larlet <david@larlet.fr>
 * Enguerran <engcolson@gmail.com>
 * Eric Bréhault <ebrehault@gmail.com>
+* Eric Le Lay <elelay@macports.org>
 * Éric Lemoine <eric.lemoine@gmail.com>
 * Ethan Glasser-Camp <ethan@betacantrips.com>
 * Fil <fil@rezo.net>
@@ -30,8 +31,9 @@ Contributors
 * Masataka Takeuchi <masataka.takeuchi@l-is-b.com>
 * Mathieu Agopian <mathieu@agopian.info>
 * Mathieu Leplatre <mathieu@mozilla.com>
-* Maxime Varnier <marmax@gmail.com>
+* Maxime Warnier <marmax@gmail.com>
 * Michiel de Jong <michiel@unhosted.org>
+* Mo Valipour <valipour@gmail.com>
 * Nicolas Hoizey <nicolas@hoizey.com>
 * Nicolas Perriault <nperriault@mozilla.com>
 * Niraj <https://github.com/niraj8>
@@ -40,6 +42,7 @@ Contributors
 * Rémy Hubscher <rhubscher@mozilla.com>
 * Shweta Oak <oakshweta11@gmail.com>
 * Sofia Utsch <sofia.utsch@gmail.com>
+* Surya Prashanth <prashantsurya@ymail.com>
 * SwhGo_oN
 * Tarek Ziade <tarek@mozilla.com>
 * Taylor Zane Glaeser <tzglaeser@gmail.com>

@@ -4,6 +4,7 @@ import os
 import sys
 import logging
 import logging.config
+from six.moves import input
 
 from kinto.core import scripts
 from pyramid.scripts import pserve
@@ -122,6 +123,12 @@ def main(args=None):
             except ImportError:
                 import pip
                 pip.main(['install', "kinto[postgresql]"])
+        elif backend == "redis":
+            try:
+                import kinto_redis  # NOQA
+            except ImportError:
+                import pip
+                pip.main(['install', "kinto[redis]"])
 
     elif which_command == 'migrate':
         dry_run = parsed_args['dry_run']

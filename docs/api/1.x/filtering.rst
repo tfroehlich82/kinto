@@ -17,6 +17,10 @@ the response.
 ..
 .. * ``/collection?field=1,2``
 
+**Sub-objects**
+
+* ``/collection?field.subfield=value``
+
 **Minimum and maximum**
 
 Prefix field name with ``min_`` or ``max_``:
@@ -49,6 +53,12 @@ Prefix field name with ``not_``:
 Prefix field name with ``exclude_``:
 
 * ``/collection?exclude_field=0,1``
+
+**Search string fields**
+
+Prefix field name with ``like_``:
+
+* ``/collection?like_field=foo``
 
 .. note::
 
