@@ -1,11 +1,27 @@
-import unittest
-
-import mock
 import re
+import unittest
+import mock
 
-from kinto.core.testing import get_user_headers
+from pyramid import testing
+
+from kinto import main as kinto_main
+from kinto.core.testing import get_user_headers, skip_if_no_statsd
 
 from .. import support
+
+
+class PluginSetup(unittest.TestCase):
+
+    @skip_if_no_statsd
+    def test_a_statsd_timer_is_used_for_history_if_configured(self):
+        settings = {
+            "statsd_url": "udp://127.0.0.1:8125",
+            "includes": "kinto.plugins.history"
+        }
+        config = testing.setUp(settings=settings)
+        with mock.patch('kinto.core.statsd.Client.timer') as mocked:
+            kinto_main(None, config=config)
+            mocked.assert_called_with('plugins.history')
 
 
 class HistoryWebTest(support.BaseWebTest, unittest.TestCase):
@@ -46,10 +62,9 @@ class HistoryViewTest(HistoryWebTest):
 
         self.history_uri = '/buckets/test/history'
 
-    def test_only_get_on_collection_is_allowed(self):
+    def test_only_get_and_delete_on_collection_are_allowed(self):
         self.app.put(self.history_uri, headers=self.headers, status=405)
         self.app.patch(self.history_uri, headers=self.headers, status=405)
-        self.app.delete(self.history_uri, headers=self.headers, status=405)
 
     def test_only_collection_endpoint_is_available(self):
         resp = self.app.get(self.history_uri, headers=self.headers)
@@ -79,6 +94,16 @@ class HistoryViewTest(HistoryWebTest):
         assert entry['action'] == 'create'
         assert entry['uri'] == '/buckets/test'
 
+    def test_history_supports_creation_via_plural_endpoint(self):
+        resp = self.app.post_json('/buckets', {'data': {'id': 'posted'}},
+                                  headers=self.headers)
+        resp = self.app.get('/buckets/posted/history', headers=self.headers)
+        entry = resp.json['data'][0]
+        assert entry['resource_name'] == 'bucket'
+        assert entry['bucket_id'] == 'posted'
+        assert entry['action'] == 'create'
+        assert entry['uri'] == '/buckets/posted'
+
     def test_tracks_bucket_attributes_update(self):
         body = {'data': {'foo': 'baz'}}
         self.app.patch_json(self.bucket_uri, body,
@@ -103,6 +128,24 @@ class HistoryViewTest(HistoryWebTest):
         stored_in_backend, _ = storage.get_all(parent_id='/buckets/test',
                                                collection_id='history')
         assert len(stored_in_backend) == 0
+
+    def test_delete_all_buckets_destroys_history_entries(self):
+        self.app.put_json('/buckets/1', {"data": {"a": 1}},
+                          headers=self.headers)
+
+        self.app.delete('/buckets?a=1', headers=self.headers)
+
+        # Entries about deleted bucket are gone.
+        storage = self.app.app.registry.storage
+        stored_in_backend, _ = storage.get_all(parent_id='/buckets/1',
+                                               collection_id='history')
+        assert len(stored_in_backend) == 0
+
+        # Entries of other buckets are still here.
+        resp = self.app.get(self.history_uri, headers=self.headers)
+        entry = resp.json['data'][-1]
+        assert entry['bucket_id'] == 'test'
+        assert entry['action'] == 'create'
 
     #
     # Collection
@@ -143,6 +186,17 @@ class HistoryViewTest(HistoryWebTest):
         assert entry['action'] == 'delete'
         assert entry['target']['data']['deleted'] is True
 
+    def test_tracks_multiple_collections_delete(self):
+        self.app.put(self.bucket_uri + '/collections/col2',
+                     headers=self.headers)
+
+        self.app.delete(self.bucket_uri + '/collections', headers=self.headers)
+
+        resp = self.app.get(self.history_uri, headers=self.headers)
+        entry = resp.json['data'][0]
+        assert entry['action'] == 'delete'
+        assert entry['target']['data']['id'] in (self.collection['id'], 'col2')
+
     #
     # Group
     #
@@ -181,6 +235,18 @@ class HistoryViewTest(HistoryWebTest):
         entry = resp.json['data'][0]
         assert entry['action'] == 'delete'
         assert entry['target']['data']['deleted'] is True
+
+    def test_tracks_multiple_groups_delete(self):
+        self.app.put_json(self.bucket_uri + '/groups/g2',
+                          {"data": {"members": ["her"]}},
+                          headers=self.headers)
+
+        self.app.delete(self.bucket_uri + '/groups', headers=self.headers)
+
+        resp = self.app.get(self.history_uri, headers=self.headers)
+        entry = resp.json['data'][0]
+        assert entry['action'] == 'delete'
+        assert entry['target']['data']['id'] in (self.group['id'], 'g2')
 
     #
     # Record
@@ -224,8 +290,32 @@ class HistoryViewTest(HistoryWebTest):
         assert entry['action'] == 'delete'
         assert entry['target']['data']['deleted'] is True
 
+    def test_tracks_multiple_records_delete(self):
+        records_uri = self.collection_uri + '/records'
+        body = {'data': {'foo': 43}}
+        resp = self.app.post_json(records_uri, body, headers=self.headers)
+        rid = resp.json['data']['id']
 
-class FilteringTest(HistoryWebTest):
+        self.app.delete(records_uri, headers=self.headers)
+
+        resp = self.app.get(self.history_uri, headers=self.headers)
+        entry = resp.json['data'][0]
+        assert entry['action'] == 'delete'
+        assert entry['target']['data']['id'] in (self.record['id'], rid)
+
+    def test_does_not_track_records_during_massive_deletion(self):
+        body = {'data': {'pim': 'pam'}}
+        records_uri = self.collection_uri + '/records'
+        self.app.post_json(records_uri, body, headers=self.headers)
+
+        self.app.delete(self.collection_uri, headers=self.headers)
+
+        resp = self.app.get(self.history_uri, headers=self.headers)
+        deletion_entries = [e for e in resp.json['data'] if e['action'] == 'delete']
+        assert len(deletion_entries) == 1
+
+
+class HistoryDeletionTest(HistoryWebTest):
 
     def setUp(self):
         self.app.put('/buckets/bid', headers=self.headers)
@@ -235,12 +325,53 @@ class FilteringTest(HistoryWebTest):
         self.app.put_json('/buckets/bid/collections/cid/records/rid',
                           body,
                           headers=self.headers)
+
+    def test_full_deletion(self):
+        self.app.delete('/buckets/bid/history', headers=self.headers)
+        resp = self.app.get('/buckets/bid/history', headers=self.headers)
+        assert len(resp.json['data']) == 0
+
+    def test_partial_deletion(self):
+        resp = self.app.get('/buckets/bid/history', headers=self.headers)
+        before = resp.headers['ETag']
+        self.app.put('/buckets/bid/collections/cid2', headers=self.headers)
+
+        # Delete everything before the last entry (exclusive)
+        self.app.delete('/buckets/bid/history?_before=%s' % before,
+                        headers=self.headers)
+
+        resp = self.app.get('/buckets/bid/history', headers=self.headers)
+        assert len(resp.json['data']) == 2  # record + new collection
+
+
+class FilteringTest(HistoryWebTest):
+
+    def setUp(self):
+        self.app.put('/buckets/bid', headers=self.headers)
+        self.app.put('/buckets/0', headers=self.headers)
+        self.app.put('/buckets/bid/collections/cid',
+                     headers=self.headers)
+        self.app.put('/buckets/0/collections/1',
+                     headers=self.headers)
+        body = {'data': {'foo': 42}}
+        self.app.put_json('/buckets/bid/collections/cid/records/rid',
+                          body,
+                          headers=self.headers)
+        body = {'data': {'foo': 0}}
+        self.app.put_json('/buckets/0/collections/1/records/2',
+                          body,
+                          headers=self.headers)
         body = {'data': {'foo': 'bar'}}
         self.app.patch_json('/buckets/bid/collections/cid/records/rid',
                             body,
                             headers=self.headers)
         self.app.delete('/buckets/bid/collections/cid/records/rid',
                         headers=self.headers)
+
+    def test_filter_by_unknown_field_is_not_allowed(self):
+        self.app.get('/buckets/bid/history?movie=bourne',
+                     headers=self.headers,
+                     status=400)
 
     def test_filter_by_action(self):
         resp = self.app.get('/buckets/bid/history?action=delete',
@@ -285,6 +416,30 @@ class FilteringTest(HistoryWebTest):
                             headers=self.headers)
         assert len(resp.json['data']) == 4
 
+    def test_filter_by_numeric_bucket(self):
+        uri = '/buckets/0/history?bucket_id=0'
+        resp = self.app.get(uri,
+                            headers=self.headers)
+        assert len(resp.json['data']) == 1
+
+    def test_filter_by_numeric_collection(self):
+        uri = '/buckets/0/history?collection_id=1'
+        resp = self.app.get(uri,
+                            headers=self.headers)
+        assert len(resp.json['data']) == 2
+
+    def test_filter_by_numeric_record(self):
+        uri = '/buckets/0/history?record_id=2'
+        resp = self.app.get(uri,
+                            headers=self.headers)
+        assert len(resp.json['data']) == 1
+
+    def test_filter_by_target_fields(self):
+        uri = '/buckets/bid/history?target.data.id=rid'
+        resp = self.app.get(uri,
+                            headers=self.headers)
+        assert len(resp.json['data']) == 3  # create, update, delete
+
     def test_limit_results(self):
         resp = self.app.get('/buckets/bid/history?_limit=2',
                             headers=self.headers)
@@ -296,6 +451,12 @@ class FilteringTest(HistoryWebTest):
                             headers=self.headers)
         assert sorted(resp.json['data'][0].keys()) == ['action', 'id',
                                                        'last_modified', 'uri']
+
+    def test_sort_by_date(self):
+        resp = self.app.get('/buckets/bid/history?_sort=date',
+                            headers=self.headers)
+        entries = resp.json['data']
+        assert entries[0]['date'] < entries[-1]['date']
 
 
 class BulkTest(HistoryWebTest):
@@ -347,6 +508,20 @@ class BulkTest(HistoryWebTest):
         assert entries[0]['uri'] == '/buckets/bid/collections/cid/records/c'
         assert entries[1]['uri'] == '/buckets/bid/collections/cid/records/b'
         assert entries[2]['uri'] == '/buckets/bid/collections/cid/records/a'
+
+    def test_multiple_patch(self):
+        # Kinto/kinto#942
+        requests = [{
+            'method': 'PATCH',
+            'path': '/buckets/bid/collections/cid/records/%s' % l,
+            'body': {'data': {'label': l}}} for l in ('a', 'b', 'c')]
+        self.app.post_json('/batch', {'requests': requests}, headers=self.headers)
+        resp = self.app.get('/buckets/bid/history', headers=self.headers)
+        entries = resp.json['data']
+        for entry in entries:
+            if entry['resource_name'] != 'record':
+                continue
+            assert entry['record_id'] == entry['target']['data']['id']
 
 
 class DefaultBucketTest(HistoryWebTest):
@@ -403,6 +578,11 @@ class DefaultBucketTest(HistoryWebTest):
 
 
 class PermissionsTest(HistoryWebTest):
+
+    def get_app_settings(self, extras=None):
+        settings = super(PermissionsTest, self).get_app_settings(extras)
+        settings['experimental_permissions_endpoint'] = 'true'
+        return settings
 
     def setUp(self):
         self.alice_headers = get_user_headers('alice')
@@ -523,3 +703,53 @@ class PermissionsTest(HistoryWebTest):
         resp = self.app.get('/buckets/test/history',
                             headers=self.alice_headers)
         assert resp.headers['ETag'] != before
+
+    def test_history_entries_are_not_listed_in_permissions_endpoint(self):
+        resp = self.app.get('/permissions',
+                            headers=self.headers)
+        entries = [e['resource_name'] == 'history' for e in resp.json["data"]]
+        assert not any(entries)
+
+
+class ExcludeResourcesTest(HistoryWebTest):
+
+    def get_app_settings(self, extras=None):
+        settings = super(ExcludeResourcesTest, self).get_app_settings(extras)
+        settings['history.exclude_resources'] = ('/buckets/a '
+                                                 '/buckets/b/collections/a '
+                                                 '/buckets/b/groups/a')
+        return settings
+
+    def setUp(self):
+        group = {'data': {'members': []}}
+        self.app.put_json('/buckets/a', headers=self.headers)
+        self.app.put_json('/buckets/a/groups/admins', group, headers=self.headers)
+        self.app.put_json('/buckets/b', headers=self.headers)
+        self.app.put_json('/buckets/b/groups/a', group, headers=self.headers)
+        self.app.put_json('/buckets/b/collections/a', headers=self.headers)
+        self.app.put_json('/buckets/b/collections/a/records/1', headers=self.headers)
+        self.app.put_json('/buckets/b/collections/b', headers=self.headers)
+        self.app.put_json('/buckets/b/collections/b/records/1', headers=self.headers)
+
+    def test_whole_buckets_can_be_excluded(self):
+        resp = self.app.get('/buckets/a/history',
+                            headers=self.headers)
+        entries = resp.json['data']
+        assert len(entries) == 0  # nothing.
+
+    def test_some_specific_collection_can_be_excluded(self):
+        resp = self.app.get('/buckets/b/history?collection_id=b',
+                            headers=self.headers)
+        entries = resp.json['data']
+        assert len(entries) > 0
+
+        resp = self.app.get('/buckets/b/history?collection_id=a',
+                            headers=self.headers)
+        entries = resp.json['data']
+        assert len(entries) == 0  # nothing.
+
+    def test_some_specific_object_can_be_excluded(self):
+        resp = self.app.get('/buckets/b/history?group_id=a',
+                            headers=self.headers)
+        entries = resp.json['data']
+        assert len(entries) == 0  # nothing.

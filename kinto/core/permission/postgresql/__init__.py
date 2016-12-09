@@ -135,7 +135,8 @@ class Permission(PermissionBase):
         query = """
         SELECT principal
           FROM user_principals
-         WHERE user_id = :user_id;"""
+         WHERE user_id = :user_id
+            OR user_id = 'system.Authenticated';"""
         with self.client.connect(readonly=True) as conn:
             result = conn.execute(query, dict(user_id=user_id))
             results = result.fetchall()
@@ -202,6 +203,9 @@ class Permission(PermissionBase):
     def get_accessible_objects(self, principals, bound_permissions=None):
         principals_values = ','.join(["('%s')" % p for p in principals])
         if bound_permissions is None:
+            # Return all objects on which the specified principals have some
+            # permissions.
+            # (e.g. permissions endpoint which lists everything)
             query = """
             WITH user_principals AS (
               VALUES %(principals)s
@@ -211,9 +215,14 @@ class Permission(PermissionBase):
               JOIN user_principals
                 ON (principal = user_principals.column1);
             """ % dict(principals=principals_values)
+        elif len(bound_permissions) == 0:
+            # If the list of object permissions to filter on is empty, then
+            # do not bother querying the backend. The result will be empty.
+            # (e.g. root object /buckets)
+            return {}
         else:
             perms = [(o.replace('*', '.*'), p) for (o, p) in bound_permissions]
-            perms_values = ','.join(["('%s', '%s')" % p for p in perms])
+            perms_values = ','.join(["('^%s$', '%s')" % p for p in perms])
             query = """
             WITH required_perms AS (
               VALUES %(perms)s
@@ -300,12 +309,13 @@ class Permission(PermissionBase):
             rows = result.fetchall()
 
         groupby_id = OrderedDict()
+        for object_id in objects_ids:
+            groupby_id[object_id] = {}
         for row in rows:
             object_id, permission, principal = (row['object_id'],
                                                 row['permission'],
                                                 row['principal'])
-            permissions = groupby_id.setdefault(object_id, {})
-            permissions.setdefault(permission, set()).add(principal)
+            groupby_id[object_id].setdefault(permission, set()).add(principal)
         return list(groupby_id.values())
 
     def replace_object_permissions(self, object_id, permissions):
@@ -353,11 +363,20 @@ class Permission(PermissionBase):
         if len(object_id_list) == 0:
             return
 
+        object_ids_values = ','.join(["('^%s$')" % o.replace('*', '.*')
+                                      for o in object_id_list])
         query = """
+        WITH object_ids AS (
+          VALUES %(object_ids_values)s
+        )
         DELETE FROM access_control_entries
-         WHERE object_id IN :object_id_list;"""
+         USING object_ids
+         WHERE object_id ~ column1;"""
+        safeholders = {
+            'object_ids_values': object_ids_values
+        }
         with self.client.connect() as conn:
-            conn.execute(query, dict(object_id_list=tuple(object_id_list)))
+            conn.execute(query % safeholders)
 
 
 def load_from_config(config):

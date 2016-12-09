@@ -6,17 +6,17 @@ import six
 from pyramid import httpexceptions
 
 from kinto.core.utils import decode_header
+from kinto.core.testing import ThreadMixin
 
 from . import BaseTest
-from .. import support
 
 
-class SinceModifiedTest(support.ThreadMixin, BaseTest):
+class SinceModifiedTest(ThreadMixin, BaseTest):
 
     def setUp(self):
         super(SinceModifiedTest, self).setUp()
 
-        self.resource.request.validated = {'data': {}}
+        self.resource.request.validated = {'body': {'data': {}}}
 
         with mock.patch.object(self.model.storage,
                                '_bump_timestamp') as msec_mocked:

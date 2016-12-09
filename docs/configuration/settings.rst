@@ -52,9 +52,6 @@ Feature settings
 |                                                 |              | more elements than defined by the                                         |
 |                                                 |              | ``kinto.storage_max_fetch_size`` setting.                                 |
 +-------------------------------------------------+--------------+---------------------------------------------------------------------------+
-| kinto.id_generator                              | ``UUID4``    | The Python *dotted* location of the generator class that should be used   |
-|                                                 |              | to generate identifiers on a POST on a records endpoint.                  |
-+-------------------------------------------------+--------------+---------------------------------------------------------------------------+
 | kinto.<object-type>_id_generator                | ``UUID4``    | The Python *dotted* location of the generator class that should be used   |
 |                                                 |              | to generate identifiers on a POST endpoint.                               |
 |                                                 |              | Object type is one of ``bucket``, ``collection``, ``group``, ``record``.  |
@@ -141,29 +138,31 @@ Storage
 Cache
 :::::
 
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| Setting name             | Default                     | What does it do?                                                             |
-+==========================+=============================+==============================================================================+
-| kinto.cache_backend      | ``kinto.core.cache.memory`` | The Python *dotted* location of the cache backend to use.                    |
-|                          |                             |                                                                              |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_url          | ``''``                      | The URL to use to authenticate to the cache backend. e.g.                    |
-|                          |                             | ``redis://localhost:6378/1`` or ``postgres://user:pass@database/db``         |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_prefix       | ``''``                      | A prefix added to each key. Useful when having multiple Kinto using the same |
-|                          |                             | cache database.                                                              |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_pool_size    | ``25``                      | The size of the pool of connections to use for the cache backend.            |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_max_overflow | ``5``                       | Number of connections that can be opened beyond pool size.                   |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_pool_recycle | ``-1``                      | Recycle connections after the given number of seconds has passed.            |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_pool_timeout | ``30``                      | Number of seconds to wait before giving up on getting a connection from      |
-|                          |                             | the pool.                                                                    |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
-| kinto.cache_max_backlog  | ``-1``                      | Number of threads that can be in the queue waiting for a connection.         |
-+--------------------------+-----------------------------+------------------------------------------------------------------------------+
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| Setting name               | Default                     | What does it do?                                                             |
++============================+=============================+==============================================================================+
+| kinto.cache_backend        | ``kinto.core.cache.memory`` | The Python *dotted* location of the cache backend to use.                    |
+|                            |                             |                                                                              |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_url            | ``''``                      | The URL to use to authenticate to the cache backend. e.g.                    |
+|                            |                             | ``redis://localhost:6378/1`` or ``postgres://user:pass@database/db``         |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_prefix         | ``''``                      | A prefix added to each key. Useful when having multiple Kinto using the same |
+|                            |                             | cache database.                                                              |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_max_size_bytes | ``524288``                  | The maximum size the memory cache backend will allow per process. (in bytes) |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_pool_size      | ``25``                      | The size of the pool of connections to use for the cache backend.            |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_max_overflow   | ``5``                       | Number of connections that can be opened beyond pool size.                   |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_pool_recycle   | ``-1``                      | Recycle connections after the given number of seconds has passed.            |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_pool_timeout   | ``30``                      | Number of seconds to wait before giving up on getting a connection from      |
+|                            |                             | the pool.                                                                    |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
+| kinto.cache_max_backlog    | ``-1``                      | Number of threads that can be in the queue waiting for a connection.         |
++----------------------------+-----------------------------+------------------------------------------------------------------------------+
 
 .. code-block:: ini
 
@@ -267,7 +266,7 @@ Logging and Monitoring
 +------------------------+----------------------------------------+--------------------------------------------------------------------------+
 | kinto.statsd_prefix    | ``kinto``                              | The prefix to use when sending data to statsd.                           |
 +------------------------+----------------------------------------+--------------------------------------------------------------------------+
-| kinto.statsd_url       | ``None``                               | The URL to use to connect to the statsd host. e.g.                       |
+| kinto.statsd_url       | ``None``                               | The fully qualified URL to use to connect to the statsd host. e.g.       |
 |                        |                                        | ``udp://localhost:8125``                                                 |
 +------------------------+----------------------------------------+--------------------------------------------------------------------------+
 
@@ -465,6 +464,7 @@ list of Python modules:
 
     kinto.includes = kinto.plugins.default_bucket
                      kinto.plugins.history
+                     kinto.plugins.admin
                      kinto-attachment
                      custom-myplugin
 
@@ -475,6 +475,9 @@ list of Python modules:
 |                                       | implicitly (:ref:`more details <buckets-default-id>`).                   |
 +---------------------------------------+--------------------------------------------------------------------------+
 | ``kinto.plugins.history``             | It tracks every action performed on objects within a bucket              |
+|                                       | (:ref:`more details <api-history>`).                                     |
++---------------------------------------+--------------------------------------------------------------------------+
+| ``kinto.plugins.admin``               | It is a Web admin UI to manage data from a Kinto server.                 |
 |                                       | (:ref:`more details <api-history>`).                                     |
 +---------------------------------------+--------------------------------------------------------------------------+
 
@@ -660,7 +663,7 @@ allowed to do and which data can be managed.
 
 .. code-block :: ini
 
-    kinto.permissions_endpoint_enabled = true
+    kinto.experimental_permissions_endpoint = true
 
 Then, issue a ``GET`` request to the ``/permissions`` endpoint to get the
 list of the user permissions on the server ressources.
@@ -708,6 +711,9 @@ Project information
 +---------------------------------------+--------------------------------------------+--------------------------------------------------------------------------+
 | Setting name                          | Default                                    | What does it do?                                                         |
 +=======================================+============================================+==========================================================================+
+| kinto.version_json_path               | ``./version.json``                         | Location of the file containing the information to be shown in the       |
+|                                       |                                            | :ref:`version endpoint <api-utilities-version>`.                         |
++---------------------------------------+--------------------------------------------+--------------------------------------------------------------------------+
 | kinto.error_info_link                 | ``https://github.com/kinto/kinto/issues/`` | The HTTP link returned when uncaught errors are triggered on the server. |
 +---------------------------------------+--------------------------------------------+--------------------------------------------------------------------------+
 | kinto.project_docs                    | ``https://kinto.readthedocs.io``           | The URL where the documentation of the Kinto instance can be found. Will |

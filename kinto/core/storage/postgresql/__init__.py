@@ -67,7 +67,7 @@ class Storage(StorageBase):
 
     """  # NOQA
 
-    schema_version = 13
+    schema_version = 14
 
     def __init__(self, client, max_fetch_size, *args, **kwargs):
         super(Storage, self).__init__(*args, **kwargs)
@@ -230,6 +230,11 @@ class Storage(StorageBase):
         else:
             record[id_field] = id_generator()
 
+        # Remove redundancy in data field
+        query_record = record.copy()
+        query_record.pop(id_field, None)
+        query_record.pop(modified_field, None)
+
         query = """
         WITH delete_potential_tombstone AS (
             DELETE FROM deleted
@@ -247,7 +252,7 @@ class Storage(StorageBase):
                             parent_id=parent_id,
                             collection_id=collection_id,
                             last_modified=record.get(modified_field),
-                            data=json.dumps(record))
+                            data=json.dumps(query_record))
         with self.client.connect() as conn:
             result = conn.execute(query, placeholders)
             inserted = result.fetchone()
@@ -285,6 +290,12 @@ class Storage(StorageBase):
                id_field=DEFAULT_ID_FIELD,
                modified_field=DEFAULT_MODIFIED_FIELD,
                auth=None):
+
+        # Remove redundancy in data field
+        query_record = record.copy()
+        query_record.pop(id_field, None)
+        query_record.pop(modified_field, None)
+
         query_create = """
         WITH delete_potential_tombstone AS (
             DELETE FROM deleted
@@ -311,7 +322,7 @@ class Storage(StorageBase):
                             parent_id=parent_id,
                             collection_id=collection_id,
                             last_modified=record.get(modified_field),
-                            data=json.dumps(record))
+                            data=json.dumps(query_record))
 
         record = record.copy()
         record[id_field] = object_id
@@ -419,7 +430,7 @@ class Storage(StorageBase):
         # Handle parent_id as a regex only if it contains *
         if '*' in parent_id:
             safeholders['parent_id_filter'] = 'parent_id ~ :parent_id'
-            placeholders['parent_id'] = parent_id.replace('*', '.*')
+            placeholders['parent_id'] = "^%s$" % parent_id.replace('*', '.*')
         else:
             safeholders['parent_id_filter'] = 'parent_id = :parent_id'
         # If collection is None, remove it from query.
@@ -469,7 +480,7 @@ class Storage(StorageBase):
         # Handle parent_id as a regex only if it contains *
         if '*' in parent_id:
             safeholders['parent_id_filter'] = 'parent_id ~ :parent_id'
-            placeholders['parent_id'] = parent_id.replace('*', '.*')
+            placeholders['parent_id'] = "^%s$" % parent_id.replace('*', '.*')
         else:
             safeholders['parent_id_filter'] = 'parent_id = :parent_id'
         # If collection is None, remove it from query.
@@ -498,14 +509,14 @@ class Storage(StorageBase):
         WITH total_filtered AS (
             SELECT COUNT(id) AS count
               FROM records
-             WHERE parent_id = :parent_id
+             WHERE %(parent_id_filter)s
                AND collection_id = :collection_id
                %(conditions_filter)s
         ),
         collection_filtered AS (
             SELECT id, last_modified, data
               FROM records
-             WHERE parent_id = :parent_id
+             WHERE %(parent_id_filter)s
                AND collection_id = :collection_id
                %(conditions_filter)s
              LIMIT %(max_fetch_size)s
@@ -516,7 +527,7 @@ class Storage(StorageBase):
         filtered_deleted AS (
             SELECT id, last_modified, fake_deleted.data AS data
               FROM deleted, fake_deleted
-             WHERE parent_id = :parent_id
+             WHERE %(parent_id_filter)s
                AND collection_id = :collection_id
                %(conditions_filter)s
                %(deleted_limit)s
@@ -549,6 +560,13 @@ class Storage(StorageBase):
         safeholders = defaultdict(six.text_type)
         safeholders['max_fetch_size'] = self._max_fetch_size
 
+        # Handle parent_id as a regex only if it contains *
+        if '*' in parent_id:
+            safeholders['parent_id_filter'] = 'parent_id ~ :parent_id'
+            placeholders['parent_id'] = "^%s$" % parent_id.replace('*', '.*')
+        else:
+            safeholders['parent_id_filter'] = 'parent_id = :parent_id'
+
         if filters:
             safe_sql, holders = self._format_conditions(filters,
                                                         id_field,
@@ -572,7 +590,7 @@ class Storage(StorageBase):
             placeholders.update(**holders)
 
         if limit:
-            assert isinstance(limit, six.integer_types)  # asserted in resource
+            # We validate the limit value in the resource class as integer.
             safeholders['pagination_limit'] = 'LIMIT %s' % limit
 
         with self.client.connect(readonly=True) as conn:
@@ -613,6 +631,7 @@ class Storage(StorageBase):
             COMPARISON.NOT: '<>',
             COMPARISON.IN: 'IN',
             COMPARISON.EXCLUDE: 'NOT IN',
+            COMPARISON.LIKE: 'ILIKE',
         }
 
         conditions = []
@@ -622,10 +641,12 @@ class Storage(StorageBase):
 
             if filtr.field == id_field:
                 sql_field = 'id'
+                if isinstance(value, int):
+                    value = str(value)
             elif filtr.field == modified_field:
                 sql_field = 'as_epoch(last_modified)'
             else:
-                sql_field = "data"
+                column_name = "data"
                 # Subfields: ``person.name`` becomes ``data->person->>name``
                 subfields = filtr.field.split('.')
                 for j, subfield in enumerate(subfields):
@@ -633,15 +654,15 @@ class Storage(StorageBase):
                     field_holder = '%s_field_%s_%s' % (prefix, i, j)
                     holders[field_holder] = subfield
                     # Use ->> to convert the last level to text.
-                    sql_field += "->>" if j == len(subfields) - 1 else "->"
-                    sql_field += ":%s" % field_holder
+                    column_name += "->>" if j == len(subfields) - 1 else "->"
+                    column_name += ":%s" % field_holder
 
                 # If field is missing, we default to ''.
-                sql_field = "coalesce(%s, '')" % sql_field
+                sql_field = "coalesce(%s, '')" % column_name
                 # Cast when comparing to number (eg. '4' < '12')
                 if isinstance(value, (int, float)) and \
                    value not in (True, False):
-                    sql_field += "::numeric"
+                    sql_field = "(%s)::numeric" % column_name
 
             if filtr.operator not in (COMPARISON.IN, COMPARISON.EXCLUDE):
                 # For the IN operator, let psycopg escape the values list.
@@ -653,6 +674,9 @@ class Storage(StorageBase):
                 # WHERE field IN ();  -- Fails with syntax error.
                 if len(value) == 0:
                     value = (None,)
+
+            if filtr.operator == COMPARISON.LIKE:
+                value = '%{0}%'.format(value)
 
             # Safely escape value
             value_holder = '%s_value_%s' % (prefix, i)

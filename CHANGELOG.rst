@@ -3,17 +3,213 @@ Changelog
 
 This document describes changes between each past release.
 
-4.1.0 (unreleased)
+5.0.1 (unreleased)
 ------------------
+
+**Protocol**
+
+- Add a ``basicauth`` capability when activated on the server. (#937)
+- Activate ``basicauth`` in admin by default. (#943)
+- Add ability to delete history entries using ``DELETE`` (#958)
+
+Protocol is now at version **1.13**. See `API changelog`_.
+
+**Bug fixes**
+
+- Permissions are now correctly removed from permission backend when a parent
+  object is deleted (fixes #898)
+- Fix ``record_id`` attribute in history entries when several records are
+  modified via a batch request (fixes #942)
+- Fix crash on redirection when path contains control characters (fixes #962)
+- Fix performance issue when fetching shared objects from plural endpoints (fixes #965)
+
+**New features**
+
+- Add a setting to limit the maximum number of bytes cached in the memory backend. (#610)
+- Add a setting to exclude certain resources from being tracked by history (fixes #964)
+
+**Internal changes**
+
+- Remove usage of assert (fixes #954)
+- The ``delete_object_permissions()`` of the permission backend now supports
+  URI patterns (eg. ``/bucket/id*``)
+- Refactor handling of prefixed user id among request principals
+- Add a warning when a cache entry is set without TTL (ref #960)
+- Replaced insecure use of ``random.random()`` and ``random.choice(...)`` with
+  more secure ``random.SystemRandom().random()`` and
+  ``random.SystemRandom().choice(...)``. (#955)
+
+
+5.0.0 (2016-11-18)
+------------------
+
+**Breaking changes**
+
+- Upgraded to Cornice 2.0 (#790)
+
+**Protocol**
+
+- Add support for `JSON-Patch (RFC 6902) <https://tools.ietf.org/html/rfc6902>`_.
+- Add support for `JSON-Merge (RFC 7396) <https://tools.ietf.org/html/rfc7396>`_.
+- Added a principals list to ``hello`` view when authenticated.
+- Added details attribute to 404 errors. (#818)
+
+Protocol is now at version **1.12**. See `API changelog`_.
+
+**New features**
+
+- Added a new built-in plugin ``kinto.plugins.admin`` to serve the kinto admin.
+- Added a new ``parse_resource`` utility to ``kinto.core.utils``
+
+**Bug fixes**
+
+- Fixed showing of backend type twice in StatsD backend keys (fixes #857)
+- Fix crash when querystring parameter contains null string (fixes #882)
+- Fix crash when redirection path contains CRLF character (fixes #887)
+- Fix response status for OPTION request on version redirection (fixes #852)
+- Fix crash in PostgreSQL backend when specified bound permissions is empty (fixes #906)
+- Permissions endpoint now exposes the user permissions defined in settings (fixes #909)
+- Fix bug when two subfields are selected in partial responses (fixes #920)
+- Fix crash in permission endpoint when merging permissions from settings and from
+  permissions backend (fixes #926)
+- Fix crash in authorization policy when object ids contain unicode (fixes #931)
+
+**Internal changes**
+
+- Resource ``mapping`` attribute is now deprecated, use ``schema`` instead (#790)
+- Clarify implicit permissions when allowed to create child objects (#884)
+- Upgrade built-in ``admin`` plugin to Kinto Admin 1.5.0
+- Do not bump timestamps in PostgreSQL storage backend when non-data columns
+  are modified.
+- Add some specifications for the permissions endpoint with regards to inherited
+  permissions
+- Add deletion of multiple groups in API docs (#928)
+
+
+Thanks to all contributors, with a special big-up for @gabisurita!
+
+
+4.3.1 (2016-10-06)
+------------------
+
+**Bug fixes**
+
+- Make sure we redirect endpoints with trailing slashes with the default bucket plugin. (#848)
+- Fix group association when members contains ``system.Authenticated`` (fixes #776)
+- Raise an error when members contains ``system.Everyone`` or a group ID (#850)
+- Fix StatsD view counter with 404 responses (#853)
+- Fixes filtering on ids with numeric values. (fixes #851)
+
+
+4.3.0 (2016-10-04)
+------------------
+
+**Protocol**
+
+- Fix error response consistency with safe creations if the ``create`` permission
+  is granted (fixes #792). The server now returns a ``412`` instead of a ``403`` if
+  the ``If-None-Match: *`` header is provided and the ``create`` permission is granted.
+- The ``permissions`` attribute is now empty in the response if the user has not the permission
+  to write on the object (fixes #123)
+- Filtering records now works the same on the memory and postgresql backends:
+  if we're comparing to a number, the filter will now filter out records that
+  don't have this field. If we're comparing to anything else, the record
+  without such a field is treated as if it had '' as the value for this field.
+  (fixes #815)
+- Parent **attributes are now readable** if children creation is allowed. That means for example
+  that collection attributes are now readable to users with ``record:create`` permission.
+  Same applies to bucket attributes and ``collection:create`` and ``group:create`` (fixes #803)
+- Return an empty list on the plural endpoint instead of ``403`` if the ``create``
+  permission is allowed
+
+Protocol is now at version **1.11**. See `API changelog`_.
+
+**Bug fixes**
+
+- Fix crash in history plugin when target had no explicit permission defined (fixes #805, #842)
+
+**New features**
+
+- The storage backend now allows ``parent_id`` pattern matching in ``kinto.core.storage.get_all``. (#821)
+- The history and quotas plugins execution time is now monitored on StatsD (``kinto.plugins.quotas``
+  and ``kinto.plugins.history``) (#832)
+  ``kinto.version_json_path`` settings (fixes #830)
+
+**Internal changes**
+
+- Fixed a failing pypy test by changing the way it was mocking
+  `transaction.manager.commit` (fixes #755)
+- Moved storage/cache/permissions base tests to ``kinto.core.*.testing`` (fixes #801)
+- Now fails with an explicit error when StatsD is configured but not installed.
+- Remove redundant fields from data column in PostgreSQL records table (fixes #762)
+
+
+4.2.0 (2016-09-15)
+------------------
+
+**Protocol**
+
+- Support for filtering records based on a text search (#791)
+
+Protocol is now at version **1.10**. See `API changelog`_.
+
+**Bug fixes**
+
+- Fix concurrent writes in the memory backend (fixes #759)
+- Fix heartbeat transaction locks with PostgreSQL backends (fixes #804)
+- Fix crash with PostgreSQL storage backend when filtering with integer on
+  a missing field (fixes #813)
+
+**Internal changes**
+
+- Fix links to comparison table in docs
+
+
+4.1.1 (2016-08-29)
+------------------
+
+**Bug fixes**
+
+- Fix kinto init input function (#796)
+
+
+4.1.0 (2016-08-22)
+------------------
+
+**New features**
+
+- Show warning when ``http_scheme`` is not set to ``https`` (#706, thanks @Prashant-Surya)
+
+**Bug fixes**
+
+- Fix sorting/filtering history entries by ``date`` field
+- On subobject filtering, return a 400 error response only if first level field
+  is unknown (on resources with strict schema)
+
+
+4.0.1 (2016-08-22)
+------------------
+
+**New features**
+
+- Permissions endpoint (``GET /permissions``) can now be filtered, sorted and paginated.
+
+**Bug fixes**
+
+- Return 400 error response when history is filtered with unknown field
+- Fix crash on permissions endpoint when history is enabled (#774)
+- Fix crash on history when interacting via the bucket plural endpoint (``/buckets``) (fixes #773)
 
 **Internal changes**
 
 - Fix documentation of errors codes (fixes #766)
-- A lot of tests clean-up. The ``tests`` are now outside the ``kinto`` package
+- ``kinto.id_generator`` was removed from documentation since it does not
+  behave as expected (fixes #757, thanks @doplumi)
   folder and a ``kinto.core.testing`` module was introduced for tests helpers
   (fixes #605)
 - In documentation, link the notion of principals to the permissions page instead
   of glossary
+- Add details about ``PATCH`` behaviour (fixes #566)
 
 
 4.0.0 (2016-08-17)
@@ -49,7 +245,7 @@ Protocol is now at version **1.9**. See `API changelog`_.
 - Added a new ``--dry-run`` option to command-line script ``migrate`` that will simulate
   migration operation without executing on the backend (thanks @lavish205! #685)
 - Added ability to plug custom StatsD backend implementations via a new ``kinto.statsd_backend``
-  setting. Useful for Datadog™ integration for example (fixes #626).
+  setting. Useful for Datadogâ˘ integration for example (fixes #626).
 - Added a ``delete-collection`` action to the ``kinto`` command. (#727)
 - Added verbosity options to the ``kinto`` command. (#745)
 - Added a built-in plugin that allows to define quotas per bucket or collection. (#752)
@@ -79,6 +275,22 @@ Protocol is now at version **1.9**. See `API changelog`_.
 - Improved parts of the FAQ (#744)
 - Improve 404 and 403 error handling to make them customizable. (#748)
 - ``kinto.core`` resources are now schemaless by default (fixes #719)
+
+
+3.3.3 (2016-09-12)
+------------------
+
+- Fix heartbeat transaction locks with PostgreSQL backends (fixes #804)
+
+
+3.3.2 (2016-07-21)
+------------------
+
+**Bug fixes**
+
+- Fix Redis get_accessible_object implementation (#725)
+- Fix bug where the resource events of a request targetting two groups/collection
+  from different buckets would be grouped together.
 
 
 3.3.1 (2016-07-19)

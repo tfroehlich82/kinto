@@ -244,6 +244,7 @@ class ShareableModel(Model):
         self.get_permission_object_id = None
         # Current user main principal.
         self.current_principal = None
+        self.effective_principals = None
 
     def _allow_write(self, perm_object_id):
         """Helper to give the ``write`` permission to the current user.
@@ -252,13 +253,29 @@ class ShareableModel(Model):
                                              'write',
                                              self.current_principal)
 
+    def _annotate(self, record, perm_object_id):
+        permissions = self.permission.get_object_permissions(perm_object_id)
+        # Permissions are not returned if user only has read permission.
+        writers = permissions.get('write', [])
+        principals = self.effective_principals + [self.current_principal]
+        if len(set(writers) & set(principals)) == 0:
+            permissions = {}
+        # Insert the permissions values in the response.
+        annotated = record.copy()
+        annotated[self.permissions_field] = permissions
+        return annotated
+
     def delete_records(self, filters=None, parent_id=None):
         """Delete permissions when collection records are deleted in bulk.
         """
         deleted = super(ShareableModel, self).delete_records(filters,
                                                              parent_id)
-        perm_ids = [self.get_permission_object_id(object_id=r[self.id_field])
-                    for r in deleted]
+        # Take a huge shortcut in case we want to delete everything.
+        if not filters:
+            perm_ids = [self.get_permission_object_id(object_id='*')]
+        else:
+            perm_ids = [self.get_permission_object_id(object_id=r[self.id_field])
+                        for r in deleted]
         self.permission.delete_object_permissions(*perm_ids)
         return deleted
 
@@ -267,11 +284,8 @@ class ShareableModel(Model):
         """
         record = super(ShareableModel, self).get_record(record_id, parent_id)
         perm_object_id = self.get_permission_object_id(record_id)
-        permissions = self.permission.get_object_permissions(perm_object_id)
 
-        annotated = record.copy()
-        annotated[self.permissions_field] = permissions
-        return annotated
+        return self._annotate(record, perm_object_id)
 
     def create_record(self, record, parent_id=None):
         """Create record and set specified permissions.
@@ -284,11 +298,8 @@ class ShareableModel(Model):
         perm_object_id = self.get_permission_object_id(record_id)
         self.permission.replace_object_permissions(perm_object_id, permissions)
         self._allow_write(perm_object_id)
-        permissions = self.permission.get_object_permissions(perm_object_id)
 
-        annotated = record.copy()
-        annotated[self.permissions_field] = permissions
-        return annotated
+        return self._annotate(record, perm_object_id)
 
     def update_record(self, record, parent_id=None):
         """Update record and the specified permissions.
@@ -304,11 +315,8 @@ class ShareableModel(Model):
         perm_object_id = self.get_permission_object_id(record_id)
         self.permission.replace_object_permissions(perm_object_id, permissions)
         self._allow_write(perm_object_id)
-        permissions = self.permission.get_object_permissions(perm_object_id)
 
-        annotated = record.copy()
-        annotated[self.permissions_field] = permissions
-        return annotated
+        return self._annotate(record, perm_object_id)
 
     def delete_record(self, record_id, parent_id=None, last_modified=None):
         """Delete record and its associated permissions.

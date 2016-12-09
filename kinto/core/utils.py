@@ -1,9 +1,12 @@
 import ast
+import collections
 import hashlib
 import hmac
+import jsonpatch
 import os
 import re
 import six
+import threading
 import time
 from base64 import b64decode, b64encode
 from binascii import hexlify
@@ -38,6 +41,7 @@ except ImportError:  # pragma: no cover
 from pyramid import httpexceptions
 from pyramid.interfaces import IRoutesMapper
 from pyramid.request import Request, apply_request_extensions
+from pyramid.security import Authenticated
 from pyramid.settings import aslist
 from pyramid.view import render_view_to_response
 from cornice import cors
@@ -82,6 +86,48 @@ def merge_dicts(a, b):
             a.setdefault(k, v)
 
 
+def recursive_update_dict(root, changes, ignores=()):
+    """Update recursively all the entries from a dict and it's children dicts.
+
+    :param dict root: root dictionary
+    :param dict changes: dictonary where changes should be made (default=root)
+    :returns dict newd: dictionary with removed entries of val.
+    """
+    if isinstance(changes, dict):
+        for k, v in changes.items():
+            if isinstance(v, dict):
+                if k not in root:
+                    root[k] = {}
+                recursive_update_dict(root[k], v, ignores)
+            elif v in ignores:
+                if k in root:
+                    root.pop(k)
+            else:
+                root[k] = v
+
+
+def synchronized(method):
+    """Class method decorator to make sure two threads do not execute some code
+    at the same time (c.f Java ``synchronized`` keyword).
+
+    The decorator installs a mutex on the class instance.
+    """
+    def decorated(self, *args, **kwargs):
+        try:
+            lock = getattr(self, '__lock__')
+        except AttributeError:
+            lock = threading.RLock()
+            setattr(self, '__lock__', lock)
+
+        lock.acquire()
+        try:
+            result = method(self, *args, **kwargs)
+        finally:
+            lock.release()
+        return result
+    return decorated
+
+
 def random_bytes_hex(bytes_length):
     """Return a hexstring of bytes_length cryptographic-friendly random bytes.
 
@@ -104,7 +150,7 @@ def native_value(value):
             value = False
         try:
             return ast.literal_eval(value)
-        except (ValueError, SyntaxError):
+        except (TypeError, ValueError, SyntaxError):
             pass
     return value
 
@@ -152,15 +198,25 @@ def dict_subset(d, keys):
     for key in keys:
         if '.' in key:
             field, subfield = key.split('.', 1)
-            if isinstance(d.get(field), dict):
+            if isinstance(d.get(field), collections.Mapping):
                 subvalue = dict_subset(d[field], [subfield])
-                result.setdefault(field, {}).update(subvalue)
+                result[field] = dict_merge(subvalue, result.get(field, {}))
             elif field in d:
                 result[field] = d[field]
         else:
             if key in d:
                 result[key] = d[key]
 
+    return result
+
+
+def dict_merge(a, b):
+    """Merge the two specified dicts"""
+    result = dict(**b)
+    for key, value in a.items():
+        if isinstance(value, collections.Mapping):
+            value = dict_merge(value, result.setdefault(key, {}))
+        result[key] = value
     return result
 
 
@@ -173,6 +229,7 @@ class COMPARISON(Enum):
     GT = '>'
     IN = 'in'
     EXCLUDE = 'exclude'
+    LIKE = 'like'
 
 
 def reapply_cors(request, response):
@@ -233,6 +290,41 @@ def current_resource_name(request):
     service = current_service(request)
     resource_name = service.viewset.get_name(service.resource)
     return resource_name
+
+
+def prefixed_userid(request):
+    """In Kinto users ids are prefixed with the policy name that is
+    contained in Pyramid Multiauth.
+    If a custom authn policy is used, without authn_type, this method returns
+    the user id without prefix.
+    """
+    # If pyramid_multiauth is used, a ``authn_type`` is set on request
+    # when a policy succesfully authenticates a user.
+    # (see :func:`kinto.core.initialization.setup_authentication`)
+    authn_type = getattr(request, 'authn_type', None)
+    if authn_type is not None:
+        return authn_type + ':' + request.selected_userid
+
+
+def prefixed_principals(request):
+    """
+    :returns: the list principals with prefixed user id.
+    """
+    principals = request.effective_principals
+    if Authenticated not in principals:
+        return principals
+
+    # Remove unprefixed user id on effective_principals to avoid conflicts.
+    # (it is added via Pyramid Authn policy effective principals)
+    userid = request.prefixed_userid
+    if ':' in userid:
+        prefix, userid = userid.split(':', 1)
+    principals = [p for p in principals if p != userid]
+
+    if request.prefixed_userid not in principals:
+        principals.append(request.prefixed_userid)
+
+    return principals
 
 
 def build_request(original, dict_obj):
@@ -387,6 +479,9 @@ def view_lookup(request, uri):
     fakerequest = Request.blank(path=path)
     info = routes_mapper(fakerequest)
     matchdict, route = info['match'], info['route']
+    if route is None:
+        raise ValueError("URI has no route")
+
     resource_name = route.name.replace('-record', '')\
                               .replace('-collection', '')
     return resource_name, matchdict
@@ -396,3 +491,73 @@ def instance_uri(request, resource_name, **params):
     """Return the URI for the given resource."""
     return strip_uri_prefix(request.route_path('%s-record' % resource_name,
                                                **params))
+
+
+def parse_resource(resource):
+    """Extract the bucket_id and collection_id of the given resource (URI)
+
+    :param str resource: a uri formatted /buckets/<bid>/collections/<cid> or <bid>/<cid>.
+    :returns: a dictionary with the bucket_id and collection_id of the resource
+    """
+
+    error_msg = "Resources should be defined as "
+    "'/buckets/<bid>/collections/<cid>' or '<bid>/<cid>'. "
+    "with valid collection and bucket ids."
+
+    from kinto.views import NameGenerator
+    id_generator = NameGenerator()
+    parts = resource.split('/')
+    if len(parts) == 2:
+        bucket, collection = parts
+    elif len(parts) == 5:
+        _, _, bucket, _, collection = parts
+    else:
+        raise ValueError(error_msg)
+    if bucket == '' or collection == '':
+        raise ValueError(error_msg)
+    if not id_generator.match(bucket) or not id_generator.match(collection):
+        raise ValueError(error_msg)
+    return {
+        'bucket': bucket,
+        'collection': collection
+    }
+
+
+def apply_json_patch(record, ops):
+    """
+    Apply JSON Patch operations using jsonpatch.
+
+    :param record: base record where changes should be applied (not in-place).
+    :param list changes: list of JSON patch operations.
+    :param bool only_data: param to limit the scope of the patch only to 'data'.
+    :returns dict data: patched record data.
+             dict permissions: patched record permissions
+    """
+    data = record.copy()
+
+    # Permissions should always have read and write fields defined (to allow add)
+    permissions = {'read': set(), 'write': set()}
+
+    # Get permissions if available on the resource (using SharableResource)
+    permissions.update(data.pop('__permissions__', {}))
+
+    # Permissions should be mapped as a dict, since jsonpatch doesn't accept
+    # sets and lists are mapped as JSON arrays (not indexed by value)
+    permissions = {k: {i: i for i in v} for k, v in permissions.items()}
+
+    resource = {'data': data, 'permissions': permissions}
+
+    # Allow patch permissions without value since key and value are equal on sets
+    for op in ops:
+        if 'path' in op:
+            if op['path'].startswith(('/permissions/read/',
+                                      '/permissions/write/')):
+                op['value'] = op['path'].split('/')[-1]
+
+    try:
+        result = jsonpatch.apply_patch(resource, ops)
+
+    except (jsonpatch.JsonPatchException, jsonpatch.JsonPointerException) as e:
+        raise ValueError(e)
+
+    return result

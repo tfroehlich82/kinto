@@ -160,6 +160,74 @@ Replacing a group
 .. include:: _status-put-object.rst
 
 
+.. _group-patch:
+
+Modify a group
+==============
+
+.. http:patch:: /buckets/(bucket_id)/groups/(group_id)
+
+    :synopsis: Modifies an existing group.
+
+    **Requires authentication**
+
+    **Example Request**
+
+    .. sourcecode:: bash
+
+        $ echo '{"data": {"members": ["basicauth:206691a25679e4e1135f16aa77ebcf211c767393c4306cfffe6cc228ac0886b6"]}}' | http patch http://localhost:8888/v1/buckets/blog/groups/readers --auth="token:bob-token" --verbose
+
+    .. sourcecode:: http
+
+        PATCH /v1/buckets/blog/groups/readers HTTP/1.1
+        Accept: application/json
+        Accept-Encoding: gzip, deflate
+        Authorization: Basic Ym9iOg==
+        Connection: keep-alive
+        Content-Length: 102
+        Content-Type: application/json
+        Host: localhost:8888
+        User-Agent: HTTPie/0.9.2
+
+        {
+            "data": {
+                "members": [
+                    "basicauth:206691a25679e4e1135f16aa77ebcf211c767393c4306cfffe6cc228ac0886b6"
+                ]
+            }
+        }
+
+    **Example Response**
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Access-Control-Expose-Headers: Backoff, Retry-After, Alert
+        Content-Length: 247
+        Content-Type: application/json; charset=UTF-8
+        Date: Thu, 18 Jun 2015 16:41:01 GMT
+        Server: waitress
+
+        {
+            "data": {
+                "id": "readers",
+                "last_modified": 1434645661227,
+                "members": [
+                    "basicauth:206691a25679e4e1135f16aa77ebcf211c767393c4306cfffe6cc228ac0886b6"
+                ]
+            },
+            "permissions": {
+                "write": [
+                    "basicauth:206691a25679e4e1135f16aa77ebcf211c767393c4306cfffe6cc228ac0886b6"
+                ]
+            }
+        }
+
+.. include:: _details-patch-object.rst
+
+.. include:: _status-patch-object.rst
+
+
 .. _group-get:
 
 Retrieving a group
@@ -276,6 +344,62 @@ Retrieving all groups
 .. include:: _details-get-list.rst
 
 .. include:: _status-get-list.rst
+
+
+.. _groups-delete:
+
+Deleting all groups
+===================
+
+.. http:delete:: /buckets/(bucket_id)/groups
+
+    :synopsis: Delete every writable group in the bucket.
+
+    **Requires authentication**
+
+    **Example Request**
+
+    .. sourcecode:: bash
+
+        $ http delete http://localhost:8888/v1/buckets/blog/groups --auth="token:bob-token" --verbose
+
+    .. sourcecode:: http
+
+        DELETE /v1/buckets/blog/groups HTTP/1.1
+        Accept: */*
+        Accept-Encoding: gzip, deflate
+        Authorization: Basic dG9rZW46Ym9iLXRva2Vu
+        Connection: keep-alive
+        Content-Length: 0
+        Host: localhost:8888
+        User-Agent: HTTPie/0.9.3
+
+    **Example Response**
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Access-Control-Expose-Headers: Retry-After, Content-Length, Alert, Backoff
+        Content-Length: 72
+        Content-Type: application/json; charset=UTF-8
+        Date: Sun, 20 Nov 2016 03:04:57 GMT
+        Server: waitress
+
+        {
+            "data": [
+                {
+                    "deleted": true,
+                    "id": "readers",
+                    "last_modified": 1479611097155
+                }
+            ]
+        }
+
+
+
+.. include:: _details-delete-list.rst
+
+.. include:: _status-delete-list.rst
 
 
 .. _group-delete:

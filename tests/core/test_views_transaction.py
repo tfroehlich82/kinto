@@ -69,6 +69,12 @@ class PostgreSQLTest(BaseWebTest):
 @skip_if_no_postgresql
 class TransactionTest(PostgreSQLTest, unittest.TestCase):
 
+    def test_heartbeat_releases_transaction_lock(self):
+        for i in range(4):
+            # 4 calls because we have 3 backends
+            # See bug Kinto/kinto#804
+            self.app.get('/__heartbeat__')
+
     def test_storage_operations_are_committed_on_success(self):
         request_create = {
             'method': 'POST',
@@ -166,7 +172,10 @@ class TransactionEventsTest(PostgreSQLTest, unittest.TestCase):
 
         app = self.make_app_with_subscribers([(events.ResourceChanged,
                                                store_record)])
-        with mock.patch('pyramid_tm.transaction.manager.commit') as mocked:
+        # We want to patch the following method so that it raises an exception,
+        # to make sure the rollback is happening correctly.
+        to_patch = 'transaction._manager.ThreadTransactionManager.commit'
+        with mock.patch(to_patch) as mocked:
             mocked.side_effect = ValueError
             self.send_batch_create(app, status=500)
         resp = app.get('/mushrooms', headers=self.headers)

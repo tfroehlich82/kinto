@@ -1,5 +1,6 @@
+from pyramid.settings import aslist
+
 from kinto.core.utils import instance_uri
-import copy
 from datetime import datetime
 
 
@@ -9,30 +10,46 @@ def on_resource_changed(event):
     ``history`` resource. The entries are served as read-only in the
     :mod:`kinto.plugins.history.views` module.
     """
-    payload = copy.deepcopy(event.payload)
+    payload = event.payload
     resource_name = payload['resource_name']
     event_uri = payload['uri']
 
-    bucket_id = payload.pop('bucket_id')
-    bucket_uri = instance_uri(event.request, 'bucket', id=bucket_id)
-    collection_id = None
+    bucket_id = None
+    bucket_uri = None
     collection_uri = None
-    if 'collection_id' in payload:
-        collection_id = payload['collection_id']
-        collection_uri = instance_uri(event.request,
-                                      'collection',
-                                      bucket_id=bucket_id,
-                                      id=collection_id)
 
     storage = event.request.registry.storage
     permission = event.request.registry.permission
+    settings = event.request.registry.settings
+
+    excluded_resources = aslist(settings.get('history.exclude_resources', ''))
 
     targets = []
     for impacted in event.impacted_records:
-        # On POST .../records, the URI does not contain the newly created
-        # record id.
         target = impacted['new']
         obj_id = target['id']
+
+        try:
+            bucket_id = payload['bucket_id']
+        except KeyError:
+            # e.g. DELETE /buckets
+            bucket_id = obj_id
+        bucket_uri = instance_uri(event.request, 'bucket', id=bucket_id)
+
+        if bucket_uri in excluded_resources:
+            continue
+
+        if 'collection_id' in payload:
+            collection_id = payload['collection_id']
+            collection_uri = instance_uri(event.request,
+                                          'collection',
+                                          bucket_id=bucket_id,
+                                          id=collection_id)
+            if collection_uri in excluded_resources:
+                continue
+
+        # On POST .../records, the URI does not contain the newly created
+        # record id.
         parts = event_uri.split('/')
         if resource_name in parts[-1]:
             parts.append(obj_id)
@@ -40,7 +57,14 @@ def on_resource_changed(event):
             # Make sure the id is correct on grouped events.
             parts[-1] = obj_id
         uri = '/'.join(parts)
+
+        if uri in excluded_resources:
+            continue
+
         targets.append((uri, target))
+
+    if not targets:
+        return  # Nothing to do.
 
     # Prepare a list of object ids to be fetched from permission backend,
     # and fetch them all at once. Use a mapping for later convenience.
@@ -70,7 +94,9 @@ def on_resource_changed(event):
         # Prepare the history entry attributes.
         perms = {k: list(v) for k, v in perms_by_object_id[uri].items()}
         eventattrs = dict(**payload)
-        eventattrs.setdefault('%s_id' % resource_name, obj_id)
+        eventattrs.pop('timestamp', None)  # Already in target `last_modified`.
+        eventattrs.pop('bucket_id', None)
+        eventattrs['%s_id' % resource_name] = obj_id
         eventattrs['uri'] = uri
         attrs = dict(date=datetime.now().isoformat(),
                      target={'data': target, 'permissions': perms},
