@@ -6,13 +6,12 @@ from cornice.validators import colander_validator
 from pyramid.settings import asbool
 
 from kinto.core import authorization
-from kinto.core.resource.schema import PermissionsSchema
+from kinto.core.resource.schema import PermissionsSchema, RequestSchema
 
 
 CONTENT_TYPES = ["application/json"]
 
-PATCH_CONTENT_TYPES = ["application/json-patch+json",
-                       "application/merge-patch+json"]
+PATCH_CONTENT_TYPES = ["application/merge-patch+json"]
 
 
 class StrictSchema(colander.MappingSchema):
@@ -120,13 +119,13 @@ class ViewSet(object):
         args.update(**endpoint_args)
 
         if method.lower() in map(str.lower, self.validate_schema_for):
-            schema = PartialSchema()
+            schema = RequestSchema()
             record_schema = self.get_record_schema(resource_cls, method)
             record_schema.name = 'body'
             schema.add(record_schema)
             args['schema'] = schema
         else:
-            args['schema'] = SimpleSchema()
+            args['schema'] = RequestSchema()
 
         validators = args.get('validators', [])
         validators.append(colander_validator)
