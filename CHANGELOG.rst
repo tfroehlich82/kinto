@@ -3,10 +3,20 @@ Changelog
 
 This document describes changes between each past release.
 
-5.4.0 (unreleased)
+6.0.0 (unreleased)
 ------------------
 
-- Nothing changed yet.
+**Internal changes**
+
+- Remove pypy supports. (#1049)
+
+
+5.3.2 (unreleased)
+------------------
+
+**Bug fixes**
+
+- Retries to set value in PostgreSQL cache backend in case of BackendError (fixes #1052)
 
 
 5.3.1 (2017-01-30)
@@ -20,6 +30,8 @@ This document describes changes between each past release.
 
 - Remove JSON Patch content-type from accepted types on the viewset, since it is handled
   in a separate view (#1031).
+- Permission schema children fields are now set during initialization instead of on
+  deserialization (#1046).
 - Upgraded to Kinto-Admin 1.8.1
 - Configure the Kinto Admin auth methods from the server configuration (#1042)
 
