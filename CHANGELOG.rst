@@ -6,12 +6,31 @@ This document describes changes between each past release.
 6.0.0 (unreleased)
 ------------------
 
+**Breaking changes**
+
+- Upgraded to PostgreSQL 9.5
+
+**Bug fixes**
+
+- Prevent injections in the PostgreSQL permission backend
+- Fix crash on ``If-Match: *``
+
 **Internal changes**
 
+- Update the upsert query to use an INSERT or UPDATE on CONFLICT behavior (fixes #1055)
 - Remove pypy supports. (#1049)
 
+**Internal changes**
 
-5.3.2 (unreleased)
+- Permission schema children fields are now set during initialization instead of on
+  deserialization (#1046).
+- Request schemas (including validation and deserialization) are now isolated by method
+  and endpoint type (#1047).
+- Move generic API schemas (e.g TimeStamps and HeaderFields) from `kinto.core.resource.schema`
+  to a sepate file on `kinto.core.schema`.
+
+
+5.3.2 (2017-01-31)
 ------------------
 
 **Bug fixes**
@@ -30,11 +49,8 @@ This document describes changes between each past release.
 
 - Remove JSON Patch content-type from accepted types on the viewset, since it is handled
   in a separate view (#1031).
-- Permission schema children fields are now set during initialization instead of on
-  deserialization (#1046).
 - Upgraded to Kinto-Admin 1.8.1
 - Configure the Kinto Admin auth methods from the server configuration (#1042)
-
 
 5.3.0 (2017-01-20)
 ------------------
