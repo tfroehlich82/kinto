@@ -20,7 +20,6 @@ from kinto.core.logs import logger
 # Module version, as defined in PEP-0396.
 __version__ = pkg_resources.get_distribution('kinto').version  # FIXME?
 
-
 DEFAULT_SETTINGS = {
     'backoff': None,
     'batch_max_requests': 25,
@@ -143,6 +142,9 @@ def includeme(config):
 
     # Setup cornice.
     config.include("cornice")
+
+    # Setup cornice api documentation
+    config.include("cornice_swagger")
 
     # Per-request transaction.
     config.include("pyramid_tm")
