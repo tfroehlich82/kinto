@@ -1,7 +1,11 @@
-from kinto import logger
+import logging
+
 from kinto.core.cache import CacheBase
 from kinto.core.utils import msec_time
 from kinto.core.decorators import synchronized
+
+
+logger = logging.getLogger(__name__)
 
 
 class Cache(CacheBase):
@@ -56,6 +60,8 @@ class Cache(CacheBase):
 
     @synchronized
     def set(self, key, value, ttl=None):
+        if isinstance(value, bytes):
+            raise TypeError("a string-like object is required, not 'bytes'")
         self._clean_expired()
         self._clean_oversized()
         if ttl is not None:
