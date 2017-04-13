@@ -20,7 +20,7 @@ REQUIREMENTS = [
     'bcrypt',
     'colander >= 1.3.2',
     'cornice >= 2.4',
-    'cornice_swagger >= 0.5',
+    'cornice_swagger >= 0.5.1',
     'jsonschema',
     'jsonpatch',
     'logging-color-formatter >= 1.0.1',  # Message interpolations.
@@ -28,7 +28,7 @@ REQUIREMENTS = [
     'pyramid > 1.8',
     'pyramid_multiauth >= 0.8',  # User on policy selected event.
     'transaction',
-    'pyramid_tm',
+    'pyramid_tm < 2',
     'requests',
     'waitress',
     'ujson >= 1.35'
