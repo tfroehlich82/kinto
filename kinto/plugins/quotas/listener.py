@@ -7,9 +7,10 @@ from kinto.core.utils import instance_uri
 
 from .utils import record_size
 
+
 QUOTA_RESOURCE_NAME = 'quota'
-QUOTA_BUCKET_ID = 'bucket_info'
-QUOTA_COLLECTION_ID = 'collection_info'
+BUCKET_QUOTA_OBJECT_ID = 'bucket_info'
+COLLECTION_QUOTA_OBJECT_ID = 'collection_info'
 
 
 def get_bucket_settings(settings, bucket_id, name):
@@ -40,10 +41,15 @@ def on_resource_changed(event):
     payload = event.payload
     action = payload['action']
     resource_name = payload['resource_name']
-    event_uri = payload['uri']
+
+    if action == 'delete' and resource_name == 'bucket':
+        # Deleting a bucket already deletes everything underneath (including
+        # quotas info). See kinto/views/bucket.
+        return
 
     settings = event.request.registry.settings
 
+    event_uri = payload['uri']
     bucket_id = payload['bucket_id']
     bucket_uri = instance_uri(event.request, 'bucket', id=bucket_id)
     collection_id = None
@@ -71,20 +77,6 @@ def on_resource_changed(event):
 
     storage = event.request.registry.storage
 
-    if action == 'delete' and resource_name == 'bucket':
-        try:
-            storage.delete(parent_id=bucket_uri,
-                           collection_id=QUOTA_RESOURCE_NAME,
-                           object_id=QUOTA_BUCKET_ID)
-        except RecordNotFoundError:
-            pass
-
-        collection_pattern = instance_uri(event.request, 'collection',
-                                          bucket_id=bucket_id, id='*')
-        storage.delete_all(parent_id=collection_pattern,
-                           collection_id=QUOTA_RESOURCE_NAME)
-        return
-
     targets = []
     for impacted in event.impacted_records:
         target = impacted['new' if action != 'delete' else 'old']
@@ -108,7 +100,7 @@ def on_resource_changed(event):
         bucket_info = copy.deepcopy(
             storage.get(parent_id=bucket_uri,
                         collection_id=QUOTA_RESOURCE_NAME,
-                        object_id=QUOTA_BUCKET_ID))
+                        object_id=BUCKET_QUOTA_OBJECT_ID))
     except RecordNotFoundError:
         bucket_info = {
             "collection_count": 0,
@@ -125,7 +117,7 @@ def on_resource_changed(event):
             collection_info = copy.deepcopy(
                 storage.get(parent_id=collection_uri,
                             collection_id=QUOTA_RESOURCE_NAME,
-                            object_id=QUOTA_COLLECTION_ID))
+                            object_id=COLLECTION_QUOTA_OBJECT_ID))
         except RecordNotFoundError:
             pass
 
@@ -218,20 +210,16 @@ def on_resource_changed(event):
 
     storage.update(parent_id=bucket_uri,
                    collection_id=QUOTA_RESOURCE_NAME,
-                   object_id=QUOTA_BUCKET_ID,
+                   object_id=BUCKET_QUOTA_OBJECT_ID,
                    record=bucket_info)
 
     if collection_id:
         if action == 'delete' and resource_name == 'collection':
-            try:
-                storage.delete(parent_id=collection_uri,
-                               collection_id=QUOTA_RESOURCE_NAME,
-                               object_id=QUOTA_COLLECTION_ID)
-            except RecordNotFoundError:
-                pass
+            # Deleting a collection already deletes everything underneath
+            # (including quotas info). See kinto/views/collection.
             return
         else:
             storage.update(parent_id=collection_uri,
                            collection_id=QUOTA_RESOURCE_NAME,
-                           object_id=QUOTA_COLLECTION_ID,
+                           object_id=COLLECTION_QUOTA_OBJECT_ID,
                            record=collection_info)

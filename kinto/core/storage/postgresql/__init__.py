@@ -312,7 +312,7 @@ class Storage(StorageBase):
         query_record.pop(id_field, None)
         query_record.pop(modified_field, None)
 
-        query_create = """
+        query = """
         WITH delete_potential_tombstone AS (
             DELETE FROM deleted
              WHERE id = :object_id
@@ -323,15 +323,10 @@ class Storage(StorageBase):
         VALUES (:object_id, :parent_id,
                 :collection_id, (:data)::JSONB,
                 from_epoch(:last_modified))
-        RETURNING as_epoch(last_modified) AS last_modified;
-        """
-
-        query_update = """
-        UPDATE records SET data=(:data)::JSONB,
-                           last_modified=from_epoch(:last_modified)
-        WHERE id = :object_id
-           AND parent_id = :parent_id
-           AND collection_id = :collection_id
+        ON CONFLICT (id, parent_id, collection_id) DO UPDATE
+            SET data=(:data)::JSONB,
+                last_modified = GREATEST(from_epoch(:last_modified),
+                                         EXCLUDED.last_modified)
         RETURNING as_epoch(last_modified) AS last_modified;
         """
         placeholders = dict(object_id=object_id,
@@ -340,22 +335,11 @@ class Storage(StorageBase):
                             last_modified=record.get(modified_field),
                             data=json.dumps(query_record))
 
-        record = {**record, id_field: object_id}
-
         with self.client.connect() as conn:
-            # Create or update ?
-            query = """
-            SELECT id FROM records
-            WHERE id = :object_id
-              AND parent_id = :parent_id
-              AND collection_id = :collection_id;
-            """
-            result = conn.execute(query, placeholders)
-            query = query_update if result.rowcount > 0 else query_create
-
             result = conn.execute(query, placeholders)
             updated = result.fetchone()
 
+        record = {**record, id_field: object_id}
         record[modified_field] = updated['last_modified']
         return record
 
@@ -415,17 +399,23 @@ class Storage(StorageBase):
         if with_deleted:
             query = """
             WITH deleted_records AS (
+                WITH matching_records AS (
+                    SELECT id, parent_id, collection_id
+                        FROM records
+                        WHERE {parent_id_filter}
+                              {collection_id_filter}
+                              {conditions_filter}
+                              {pagination_rules}
+                        {sorting}
+                        {pagination_limit}
+                )
                 DELETE
                 FROM records
-                WHERE id IN (SELECT id
-                             FROM records
-                             WHERE {parent_id_filter}
-                                   {collection_id_filter}
-                                   {conditions_filter}
-                                   {pagination_rules}
-                             {sorting}
-                             {pagination_limit})
-                RETURNING id, parent_id, collection_id
+                USING matching_records
+                WHERE records.id = matching_records.id
+                  AND records.parent_id = matching_records.parent_id
+                  AND records.collection_id = matching_records.collection_id
+                RETURNING records.id, records.parent_id, records.collection_id
             )
             INSERT INTO deleted (id, parent_id, collection_id)
             SELECT id, parent_id, collection_id
@@ -434,17 +424,23 @@ class Storage(StorageBase):
             """
         else:
             query = """
+            WITH matching_records AS (
+                SELECT id, parent_id, collection_id
+                    FROM records
+                    WHERE {parent_id_filter}
+                          {collection_id_filter}
+                          {conditions_filter}
+                          {pagination_rules}
+                    {sorting}
+                    {pagination_limit}
+            )
             DELETE
             FROM records
-            WHERE id IN (SELECT id
-                         FROM records
-                         WHERE {parent_id_filter}
-                               {collection_id_filter}
-                               {conditions_filter}
-                               {pagination_rules}
-                         {sorting}
-                         {pagination_limit})
-            RETURNING id, as_epoch(last_modified) AS last_modified;
+            USING matching_records
+            WHERE records.id = matching_records.id
+              AND records.parent_id = matching_records.parent_id
+              AND records.collection_id = matching_records.collection_id
+            RETURNING records.id, as_epoch(last_modified) AS last_modified;
             """
 
         id_field = id_field or self.id_field
@@ -703,7 +699,7 @@ class Storage(StorageBase):
                 sql_field = "coalesce({}, '')".format(column_name)
                 # Cast when comparing to number (eg. '4' < '12')
                 try:
-                    if is_numeric(value) or all([is_numeric(v) for v in value]):
+                    if value and (is_numeric(value) or all([is_numeric(v) for v in value])):
                         sql_field = "({})::numeric".format(column_name)
                 except TypeError:  # not iterable
                     pass

@@ -401,6 +401,14 @@ class BaseTestStorage:
                                           **self.storage_kw)
         self.assertEqual(len(records), 1)
 
+    def test_get_all_can_filter_with_empty_numeric_strings(self):
+        for l in ["0566199093", "0781566199"]:
+            self.create_record({'phone': l})
+        filters = [Filter('phone', "", utils.COMPARISON.EQ)]
+        records, _ = self.storage.get_all(filters=filters,
+                                          **self.storage_kw)
+        self.assertEqual(len(records), 0)
+
     def test_get_all_can_filter_with_float_values(self):
         for l in [10, 11.5, 8.5, 6, 7.5]:
             self.create_record({'note': l})
@@ -669,13 +677,13 @@ class TimestampsTest:
         # Check that record timestamp is the one specified.
         retrieved = self.storage.get(object_id=record_id, **self.storage_kw)
         self.assertGreater(retrieved[self.modified_field], timestamp_before)
-        self.assertEquals(retrieved[self.modified_field],
-                          stored[self.modified_field])
+        self.assertGreaterEqual(retrieved[self.modified_field],
+                                stored[self.modified_field])
 
         # Check that collection timestamp took the one specified (in future).
         timestamp = self.storage.collection_timestamp(**self.storage_kw)
         self.assertGreater(timestamp, timestamp_before)
-        self.assertEquals(timestamp, stored[self.modified_field])
+        self.assertEquals(timestamp, retrieved[self.modified_field])
 
     def test_update_ignores_specified_last_modified_if_in_the_past(self):
         stored = self.create_record()
@@ -882,6 +890,18 @@ class DeletedRecordsTest:
         self.assertEqual(len(records), 1)
         records, count = self.storage.get_all(parent_id='efg',
                                               collection_id='c',
+                                              include_deleted=True)
+        self.assertEqual(count, 1)
+        self.assertEqual(len(records), 1)
+
+    def test_delete_all_does_proper_matching(self):
+        self.create_record(parent_id='abc', collection_id='c', record={"id": "id1"})
+        self.create_record(parent_id='def', collection_id='g', record={"id": "id1"})
+        self.storage.delete_all(parent_id='ab*',
+                                collection_id=None,
+                                with_deleted=False)
+        records, count = self.storage.get_all(parent_id='def',
+                                              collection_id='g',
                                               include_deleted=True)
         self.assertEqual(count, 1)
         self.assertEqual(len(records), 1)

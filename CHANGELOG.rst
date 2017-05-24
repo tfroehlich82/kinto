@@ -3,7 +3,34 @@ Changelog
 
 This document describes changes between each past release.
 
-7.0.0 (unreleased)
+7.1.0 (unreleased)
+------------------
+
+**New feature**
+
+- ``delete()`` method from cache backend now returns the deleted value (fixes #1231)
+
+**Bug fixes**
+
+- The ``default_bucket`` plugin no longer sends spurious "created"
+  events for buckets and collections that already exist. This causes
+  the ``quotas`` plugin to no longer leak "quota" when used with the
+  ``default_bucket`` plugin. (#1226)
+
+
+7.0.1 (2017-05-17)
+------------------
+
+**Bug fixes**
+
+- Fix missing package.json file in package. (#1222)
+
+**Internal changes**
+
+- Upgraded the kinto-admin to version 1.13.3
+
+
+7.0.0 (2017-05-15)
 ------------------
 
 **Breaking changes**
@@ -43,7 +70,6 @@ Now:
   is now mandatory (fixes #960).
 - ``get_app_settings()`` from ``kinto.core.testing.BaseWebTest`` is now a
   class method (#1144)
-- Upgraded the kinto-admin to version 1.13.2
 
 **Protocol**
 
@@ -70,6 +96,13 @@ Protocol is now at version **1.16**. See `API changelog`_.
   bucket (#1137)
 - Removed Structlog binding and bottlenecks (fixes #603)
 - Fixed Swagger output with subpath and regex in pyramid routes (fixes #1180)
+- Fixed Postgresql errors when specifying empty values in querystring numeric filters. (fixes #1194)
+- Return a 400 Bad Request instead of crashing when the querystring contains bad characters. (fixes #1195)
+- Fix PostgreSQL backend from deleting records of the same name in
+  other buckets and collections when deleting a bucket. (fixes #1209)
+- Fix race conditions on deletions with upsert in PostgreSQL ``storage.update()`` (fixes #1202)
+- Fix PostgreSQL backend race condition when replacing permissions of an object (fixes #1210)
+- Fix crash when deleting multiple buckets with quotas plugin enabled (fixes #1201)
 
 **Internal changes**
 
@@ -78,6 +111,9 @@ Protocol is now at version **1.16**. See `API changelog`_.
 - Removed useless logging info from resource (ref #603)
 - Make sure prefixed userid is always first in principals
 - Run functional tests on PostgreSQL
+- Fix tests with Pyramid 1.9a
+- Removed useless deletions in quota plugin
+- Upgraded the kinto-admin to version 1.13.2
 
 
 6.0.0 (2017-03-03)
