@@ -981,6 +981,28 @@ class DeletedRecordsTest:
                                                  collection_id=None)
         self.assertEqual(num_removed, 2)
 
+    def test_purge_deleted_removes_timestamps_by_parent_id(self):
+        self.create_record(parent_id='/abc/a', collection_id='c')
+        self.create_record(parent_id='/abc/a', collection_id='c')
+        self.create_record(parent_id='/efg', collection_id='c')
+
+        before1 = self.storage.collection_timestamp(parent_id='/abc/a', collection_id='c')
+        # Different parent_id with record.
+        before2 = self.storage.collection_timestamp(parent_id='/efg', collection_id='c')
+        # Different parent_id without record.
+        before3 = self.storage.collection_timestamp(parent_id='/ijk', collection_id='c')
+
+        self.storage.delete_all(parent_id='/abc/*', collection_id=None, with_deleted=False)
+        self.storage.purge_deleted(parent_id='/abc/*', collection_id=None)
+
+        after1 = self.storage.collection_timestamp(parent_id='/abc/a', collection_id='c')
+        after2 = self.storage.collection_timestamp(parent_id='/efg', collection_id='c')
+        after3 = self.storage.collection_timestamp(parent_id='/ijk', collection_id='c')
+
+        self.assertNotEqual(before1, after1)
+        self.assertEqual(before2, after2)
+        self.assertEqual(before3, after3)
+
     def test_purge_deleted_works_when_no_tombstones(self):
         num_removed = self.storage.purge_deleted(**self.storage_kw)
         self.assertEqual(num_removed, 0)
@@ -1215,6 +1237,49 @@ class ParentRecordAccessTest:
         not_updated = self.storage.get(object_id=record['id'],
                                        **self.storage_kw)
         self.assertNotIn("another", not_updated)
+
+    def test_create_bytes_value_gets_back_str(self):
+        data = {'steak': 'haché'.encode(encoding='utf-8')}
+        self.assertIsInstance(data['steak'], bytes)
+
+        record = self.create_record(data)
+
+        back_record = self.storage.get(object_id=record['id'],
+                                       **self.storage_kw)
+        self.assertIsInstance(back_record['steak'], str)
+        self.assertEqual(back_record['steak'], 'haché')
+
+    def test_create_bytes_value_bad_encoding_raises(self):
+        self.assertRaises(OverflowError,
+                          self.create_record,
+                          {'steak': 'haché'.encode(encoding='iso-8859-1')}
+                          )
+
+    def test_update_bytes_value_gets_back_str(self):
+        record = self.create_record()
+
+        new_record = {'steak': 'haché'.encode(encoding='utf-8')}
+        self.assertIsInstance(new_record['steak'], bytes)
+
+        self.storage.update(object_id=record['id'],
+                            record=new_record,
+                            **self.storage_kw)
+
+        back_record = self.storage.get(object_id=record['id'],
+                                       **self.storage_kw)
+        self.assertIsInstance(back_record['steak'], str)
+        self.assertEqual(back_record['steak'], 'haché')
+
+    def test_update_bytes_value_bad_encoding_raises(self):
+        record = self.create_record()
+
+        new_record = {'steak': 'haché'.encode(encoding='iso-8859-1')}
+        self.assertRaises(OverflowError,
+                          self.storage.update,
+                          object_id=record['id'],
+                          record=new_record,
+                          **self.storage_kw
+                          )
 
 
 class StorageTest(ThreadMixin,

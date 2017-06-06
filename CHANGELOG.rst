@@ -3,12 +3,23 @@ Changelog
 
 This document describes changes between each past release.
 
-7.1.0 (unreleased)
+7.2.0 (unreleased)
+------------------
+
+**Bug fixes**
+
+- Handle querystring parameters as JSON encoded values
+  to avoid treating number as number where they should be strings. (#1217)
+
+
+7.1.0 (2017-05-31)
 ------------------
 
 **New feature**
 
 - ``delete()`` method from cache backend now returns the deleted value (fixes #1231)
+- ``kinto rebuild-quotas`` script was written that can be run to
+  repair the damage caused by #1226 (fixes #1230).
 
 **Bug fixes**
 
@@ -16,6 +27,19 @@ This document describes changes between each past release.
   events for buckets and collections that already exist. This causes
   the ``quotas`` plugin to no longer leak "quota" when used with the
   ``default_bucket`` plugin. (#1226)
+- Fix removal of timestamps when parent object is deleted (fixes #1233)
+- Do not allow to reuse deletion tokens (fixes #1171)
+- ``accounts`` plugin: fix exception on authentication. (#1224)
+- Fix crash with JSONSchema validation of unknown required properties (fixes #1243)
+- Fix bug on bucket deletion where other buckets could be deleted too if their id
+  started with the same id
+- Fix permissions of accounts created with PUT by admin (ref #1248)
+- Fix ownership of accounts created with POST by admin (fixes #1248)
+
+**Internal changes**
+
+- Make memory storage consistent with PostgreSQL with regard to bytes (#1237)
+- Some minor cleanups about the use of kinto.readonly (#1241)
 
 
 7.0.1 (2017-05-17)
