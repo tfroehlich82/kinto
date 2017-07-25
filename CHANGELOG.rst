@@ -3,13 +3,33 @@ Changelog
 
 This document describes changes between each past release.
 
-7.3.0 (unreleased)
+7.3.2 (unreleased)
+------------------
+
+**Internal changes**
+
+- Use json instead of ujson in storage in tests (#1255)
+
+
+7.3.1 (2017-07-03)
 ------------------
 
 **Bug fixes**
 
+- Fix bug in Postgres backend regarding the handling of combining
+  filters and NULL values.
+
+
+7.3.0 (2017-06-23)
+------------------
+
+**New features**
+
 - Account plugin now allows account IDs to be email addresses (fixes
   #1283).
+
+**Bug fixes**
+
 - Make it illegal for a principal to be present in
   ``account_create_principals`` without also being in
   ``account_write_principals``. Restricting creation of accounts to
@@ -17,6 +37,10 @@ This document describes changes between each past release.
   means they're in ``account_write_principals``. (Fixes #1281.)
 - Fix a 500 when accounts without an ID are created (fixes #1280).
 - Fix StatsD unparseable metric packets for the unique user counter (fixes #1282)
+
+**Internal changes**
+
+- Upgraded the kinto-admin to version 1.14.0
 
 
 7.2.2 (2017-06-22)
